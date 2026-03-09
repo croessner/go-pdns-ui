@@ -1,0 +1,151 @@
+{{define "zone_editor"}}
+{{if .SelectedZone}}
+<section id="zone-editor" class="card bg-base-100 shadow-md border border-base-300">
+  <div class="card-body gap-6">
+    <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div>
+        <h2 class="text-2xl font-bold">{{.SelectedZone.Name}}</h2>
+        <div class="mt-1">
+          {{if .DraftDirty}}
+          <span class="badge badge-warning">{{index .L "draft_pending"}}</span>
+          {{else}}
+          <span class="badge badge-success">{{index .L "draft_clean"}}</span>
+          {{end}}
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        {{if .IsAdmin}}
+        <form
+          hx-post="/zones/{{pathEscape .SelectedZone.Name}}/dnssec"
+          hx-target="#zone-editor"
+          hx-swap="outerHTML"
+        >
+          <input type="hidden" name="enabled" value="{{if .SelectedZone.DNSSECEnabled}}false{{else}}true{{end}}">
+          <button type="submit" class="btn btn-sm btn-outline">
+            {{if .SelectedZone.DNSSECEnabled}}
+            {{index .L "disable_dnssec"}}
+            {{else}}
+            {{index .L "enable_dnssec"}}
+            {{end}}
+          </button>
+        </form>
+        <form
+          hx-post="/zones/{{pathEscape .SelectedZone.Name}}/apply"
+          hx-target="#zone-editor"
+          hx-swap="outerHTML"
+        >
+          <button type="submit" class="btn btn-sm btn-primary">{{index .L "apply_zone"}}</button>
+        </form>
+        <form
+          hx-post="/zones/{{pathEscape .SelectedZone.Name}}/reset"
+          hx-target="#zone-editor"
+          hx-swap="outerHTML"
+        >
+          <button type="submit" class="btn btn-sm btn-ghost">{{index .L "reset_draft"}}</button>
+        </form>
+        {{end}}
+      </div>
+    </div>
+
+    <div class="space-y-3">
+      <h3 class="text-lg font-semibold">{{index .L "records"}}</h3>
+      <div class="overflow-x-auto rounded-box border border-base-300">
+        <table class="table table-zebra">
+          <thead>
+            <tr>
+              <th>{{index .L "record_name"}}</th>
+              <th>{{index .L "record_type"}}</th>
+              <th>{{index .L "ttl"}}</th>
+              <th>{{index .L "content"}}</th>
+              <th class="text-right">{{index .L "actions"}}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .SelectedZone.Records}}
+            <tr>
+              <td class="font-mono text-xs">{{.Name}}</td>
+              <td><span class="badge badge-outline">{{.Type}}</span></td>
+              <td>{{.TTL}}</td>
+              <td class="max-w-[350px] truncate" title="{{.Content}}">{{.Content}}</td>
+              <td class="text-right">
+                {{if $.IsAdmin}}
+                <form
+                  hx-post="/zones/{{pathEscape $.SelectedZone.Name}}/records/delete"
+                  hx-target="#zone-editor"
+                  hx-swap="outerHTML"
+                  class="inline"
+                >
+                  <input type="hidden" name="name" value="{{.Name}}">
+                  <input type="hidden" name="type" value="{{.Type}}">
+                  <button
+                    type="submit"
+                    class="btn btn-error btn-xs"
+                    hx-confirm="{{index $.L "confirm_delete_record"}}"
+                  >
+                    {{index $.L "delete_record"}}
+                  </button>
+                </form>
+                {{end}}
+              </td>
+            </tr>
+            {{else}}
+            <tr>
+              <td colspan="5" class="text-center py-8 opacity-70">{{index .L "no_records"}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {{if .IsAdmin}}
+    <form
+      hx-post="/zones/{{pathEscape .SelectedZone.Name}}/records"
+      hx-target="#zone-editor"
+      hx-swap="outerHTML"
+      class="grid gap-3 md:grid-cols-6"
+    >
+      <label class="floating-label md:col-span-2">
+        <span>{{index .L "record_name"}}</span>
+        <input type="text" name="name" class="input input-bordered w-full" placeholder="@ / www / 10" required>
+      </label>
+      <label class="floating-label">
+        <span>{{index .L "record_type"}}</span>
+        <select name="type" class="select select-bordered w-full">
+          <option>A</option>
+          <option>AAAA</option>
+          <option>CNAME</option>
+          <option>MX</option>
+          <option>NS</option>
+          <option>TXT</option>
+          <option>SRV</option>
+          <option>PTR</option>
+          <option>SOA</option>
+          <option>CAA</option>
+          <option>TLSA</option>
+        </select>
+      </label>
+      <label class="floating-label">
+        <span>{{index .L "ttl"}}</span>
+        <input type="number" min="60" step="60" name="ttl" value="3600" class="input input-bordered w-full" required>
+      </label>
+      <label class="floating-label md:col-span-2">
+        <span>{{index .L "content"}}</span>
+        <input type="text" name="content" class="input input-bordered w-full" required>
+      </label>
+      <button type="submit" class="btn btn-primary md:col-span-6">{{index .L "save_record"}}</button>
+    </form>
+    {{end}}
+  </div>
+</section>
+{{else}}
+<section id="zone-editor" class="hero min-h-[420px] rounded-box bg-base-100 shadow-md border border-base-300">
+  <div class="hero-content text-center">
+    <div class="max-w-md">
+      <h2 class="text-2xl font-bold">{{index .L "zone_editor"}}</h2>
+      <p class="opacity-70 mt-2">{{index .L "select_zone_hint"}}</p>
+    </div>
+  </div>
+</section>
+{{end}}
+{{end}}

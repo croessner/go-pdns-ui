@@ -1,0 +1,70 @@
+{{define "domain_table"}}
+<div id="domain-table" class="overflow-x-auto rounded-box border border-base-300">
+  <table class="table table-zebra">
+    <thead>
+      <tr>
+        <th>{{index .L "domain_name"}}</th>
+        <th>{{index .L "zone_kind"}}</th>
+        <th>{{index .L "dnssec"}}</th>
+        <th class="text-right">{{index .L "actions"}}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Zones}}
+      <tr>
+        <td>
+          <button
+            class="link link-primary font-semibold"
+            hx-get="/zones/{{pathEscape .Name}}/editor"
+            hx-target="#zone-editor"
+            hx-swap="outerHTML"
+          >
+            {{.Name}}
+          </button>
+        </td>
+        <td>
+          {{if eq .Kind "forward"}}
+          <span class="badge badge-info badge-outline">{{index $.L "forward_zone_short"}}</span>
+          {{end}}
+          {{if eq .Kind "reverse-v4"}}
+          <span class="badge badge-secondary badge-outline">{{index $.L "reverse_v4_zone_short"}}</span>
+          {{end}}
+          {{if eq .Kind "reverse-v6"}}
+          <span class="badge badge-accent badge-outline">{{index $.L "reverse_v6_zone_short"}}</span>
+          {{end}}
+        </td>
+        <td>
+          {{if .DNSSECEnabled}}
+          <span class="badge badge-success">{{index $.L "enabled"}}</span>
+          {{else}}
+          <span class="badge">{{index $.L "disabled"}}</span>
+          {{end}}
+        </td>
+        <td class="text-right">
+          {{if $.IsAdmin}}
+          <form
+            hx-post="/zones/{{pathEscape .Name}}/delete"
+            hx-target="#workspace"
+            hx-swap="outerHTML"
+            class="inline"
+          >
+            <button
+              type="submit"
+              class="btn btn-error btn-xs"
+              hx-confirm="{{index $.L "confirm_delete_zone"}}"
+            >
+              {{index $.L "delete"}}
+            </button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+      {{else}}
+      <tr>
+        <td colspan="4" class="text-center opacity-70 py-8">{{index .L "no_domains"}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

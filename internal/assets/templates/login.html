@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="{{.Lang}}" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{index .L "login_title"}} | {{index .L "app_title"}}</title>
+  <script>
+    (function () {
+      const savedTheme = localStorage.getItem("go-pdns-ui-theme");
+      if (savedTheme) {
+        document.documentElement.setAttribute("data-theme", savedTheme);
+      }
+    })();
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css">
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="min-h-screen bg-base-200">
+  <div class="hero min-h-screen">
+    <div class="hero-content flex-col lg:flex-row-reverse gap-8">
+      <div class="text-center lg:text-left max-w-lg">
+        <h1 class="text-5xl font-black">{{index .L "app_title"}}</h1>
+        <p class="py-4 opacity-80">{{index .L "login_subtitle"}}</p>
+        <p class="text-sm opacity-70">{{index .L "login_hint"}}</p>
+      </div>
+
+      <div class="card bg-base-100 w-full max-w-sm shrink-0 shadow-2xl">
+        <div class="card-body gap-4">
+          <div class="flex items-center justify-between">
+            <h2 class="card-title">{{index .L "login_title"}}</h2>
+            <button id="theme-toggle" type="button" class="btn btn-ghost btn-sm">{{index .L "toggle_theme"}}</button>
+          </div>
+
+          {{if .Error}}
+          <div class="alert alert-error text-sm">{{.Error}}</div>
+          {{end}}
+
+          <form method="post" action="/login/password" class="space-y-3">
+            <label class="floating-label">
+              <span>{{index .L "username"}}</span>
+              <input type="text" name="username" class="input input-bordered w-full" autocomplete="username" required>
+            </label>
+            <label class="floating-label">
+              <span>{{index .L "password"}}</span>
+              <input type="password" name="password" class="input input-bordered w-full" autocomplete="current-password" required>
+            </label>
+            <button type="submit" class="btn btn-primary w-full">{{index .L "sign_in"}}</button>
+          </form>
+
+          {{if .OIDCEnabled}}
+          <div class="divider">{{index .L "or"}}</div>
+          <a href="/login/oidc/start" class="btn btn-outline w-full">{{index .L "oidc_sign_in"}}</a>
+          {{end}}
+
+          <div class="join pt-2">
+            {{range .Supported}}
+            <a href="/login?lang={{.}}" class="btn btn-sm join-item {{if eq $.Lang .}}btn-primary{{else}}btn-ghost{{end}}">{{.}}</a>
+            {{end}}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const loginRoot = document.documentElement;
+    const toggle = document.getElementById("theme-toggle");
+    const allThemes = ["light", "dark"];
+    if (toggle) {
+      toggle.addEventListener("click", () => {
+        const current = loginRoot.getAttribute("data-theme") || "light";
+        const next = current === "dark" ? "light" : "dark";
+        if (!allThemes.includes(next)) return;
+        loginRoot.setAttribute("data-theme", next);
+        localStorage.setItem("go-pdns-ui-theme", next);
+      });
+    }
+  </script>
+</body>
+</html>

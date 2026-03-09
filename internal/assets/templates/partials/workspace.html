@@ -1,0 +1,39 @@
+{{define "workspace"}}
+<div id="workspace" class="grid gap-6 xl:grid-cols-[minmax(360px,420px)_1fr]">
+  <section class="card bg-base-100 shadow-md border border-base-300">
+    <div class="card-body gap-4">
+      <div>
+        <h2 class="text-xl font-semibold">{{index .L "domains"}}</h2>
+        <p class="text-sm opacity-70">{{index .L "domains_hint"}}</p>
+      </div>
+
+      {{if .IsAdmin}}
+      <form
+        hx-post="/zones"
+        hx-target="#workspace"
+        hx-swap="outerHTML"
+        class="grid gap-2 sm:grid-cols-2"
+      >
+        <label class="floating-label sm:col-span-2">
+          <span>{{index .L "domain_name"}}</span>
+          <input type="text" name="name" class="input input-bordered w-full" placeholder="example.org" required>
+        </label>
+        <label class="floating-label sm:col-span-2">
+          <span>{{index .L "zone_kind"}}</span>
+          <select name="kind" class="select select-bordered w-full" required>
+            <option value="forward">{{index .L "forward_zone"}}</option>
+            <option value="reverse-v4">{{index .L "reverse_v4_zone"}}</option>
+            <option value="reverse-v6">{{index .L "reverse_v6_zone"}}</option>
+          </select>
+        </label>
+        <button type="submit" class="btn btn-primary sm:col-span-2">{{index .L "add_domain"}}</button>
+      </form>
+      {{end}}
+
+      {{template "domain_table" .}}
+    </div>
+  </section>
+
+  {{template "zone_editor" .}}
+</div>
+{{end}}
