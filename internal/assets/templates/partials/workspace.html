@@ -1,5 +1,5 @@
 {{define "workspace"}}
-<div id="workspace" class="grid gap-6 xl:grid-cols-[minmax(360px,420px)_1fr]">
+<div id="workspace" class="space-y-6">
   <section class="card bg-base-100 shadow-md border border-base-300">
     <div class="card-body gap-4">
       <div>
@@ -7,33 +7,189 @@
         <p class="text-sm opacity-70">{{index .L "domains_hint"}}</p>
       </div>
 
-      {{if .IsAdmin}}
-      <form
-        hx-post="/zones"
-        hx-target="#workspace"
-        hx-swap="outerHTML"
-        class="grid gap-2 sm:grid-cols-2"
-      >
-        <label class="floating-label sm:col-span-2">
-          <span>{{index .L "domain_name"}}</span>
-          <input type="text" name="name" class="input input-bordered w-full" placeholder="example.org" required>
-        </label>
-        <label class="floating-label sm:col-span-2">
-          <span>{{index .L "zone_kind"}}</span>
-          <select name="kind" class="select select-bordered w-full" required>
-            <option value="forward">{{index .L "forward_zone"}}</option>
-            <option value="reverse-v4">{{index .L "reverse_v4_zone"}}</option>
-            <option value="reverse-v6">{{index .L "reverse_v6_zone"}}</option>
-          </select>
-        </label>
-        <button type="submit" class="btn btn-primary sm:col-span-2">{{index .L "add_domain"}}</button>
-      </form>
-      {{end}}
+        {{if .IsAdmin}}
+        <form
+          hx-post="/zones"
+          hx-target="#workspace"
+          hx-swap="outerHTML"
+          class="grid gap-2 sm:grid-cols-2"
+        >
+          <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+          <input type="hidden" name="q" value="{{.ZoneQuery}}">
+          <input type="hidden" name="page" value="{{.ZonePage}}">
+          <label class="floating-label sm:col-span-2">
+            <span>{{index .L "domain_name"}}</span>
+            <input type="text" name="name" class="input input-bordered w-full" placeholder="example.org" required>
+          </label>
+          <label class="floating-label sm:col-span-2">
+            <span>{{index .L "zone_kind"}}</span>
+            <select name="kind" class="select select-bordered w-full min-h-12 leading-tight" required>
+              <option value="forward">{{index .L "forward_zone"}}</option>
+              <option value="reverse-v4">{{index .L "reverse_v4_zone"}}</option>
+              <option value="reverse-v6">{{index .L "reverse_v6_zone"}}</option>
+            </select>
+          </label>
+          <label class="floating-label sm:col-span-2">
+            <span>{{index .L "zone_template"}}</span>
+            <select name="template" class="select select-bordered w-full min-h-12 leading-tight">
+              <option value="">{{index .L "no_template"}}</option>
+              {{range .Templates}}
+              <option value="{{.Name}}">{{.Name}}</option>
+              {{end}}
+            </select>
+          </label>
+          <button type="submit" class="btn btn-primary sm:col-span-2">{{index .L "add_domain"}}</button>
+        </form>
+        {{end}}
+
+        <form
+          id="zone-search-form"
+          class="grid gap-2"
+          hx-get="/"
+          hx-target="#workspace"
+          hx-swap="outerHTML"
+          hx-trigger="submit"
+        >
+          <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
+          <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+          <input type="hidden" name="page" value="1">
+          <label class="floating-label">
+            <span>{{index .L "zone_search"}}</span>
+            <input
+              type="search"
+              name="q"
+              value="{{.ZoneQuery}}"
+              placeholder="{{index .L "zone_search_placeholder"}}"
+              autocomplete="off"
+              class="input input-bordered w-full"
+              hx-get="/"
+              hx-trigger="input changed delay:250ms, search"
+              hx-target="#workspace"
+              hx-swap="outerHTML"
+              hx-include="#zone-search-form"
+            >
+          </label>
+        </form>
 
       {{template "domain_table" .}}
     </div>
   </section>
 
   {{template "zone_editor" .}}
+
+  {{if .IsAdmin}}
+  <div class="border-t border-base-300/70 pt-6 grid gap-6 xl:grid-cols-[minmax(360px,420px)_1fr] xl:items-start">
+    <details
+      id="template-overview"
+      data-collapse-cookie="1"
+      class="collapse bg-base-100 border border-base-300 shadow-md"
+      open
+    >
+      <summary class="collapse-title list-none flex items-center justify-between gap-2 text-xl font-semibold">
+        <span>{{index .L "zone_templates"}}</span>
+        <svg class="collapse-toggle-icon h-5 w-5 opacity-70" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </summary>
+      <div class="collapse-content space-y-4">
+        <p class="text-sm opacity-70">{{index .L "zone_templates_hint"}}</p>
+
+        {{if .IsAdmin}}
+        <form
+          hx-post="/templates"
+          hx-target="#workspace"
+          hx-swap="outerHTML"
+          class="grid gap-2 sm:grid-cols-2"
+        >
+          <input type="hidden" name="selected_zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
+          <input type="hidden" name="q" value="{{.ZoneQuery}}">
+          <input type="hidden" name="page" value="{{.ZonePage}}">
+          <label class="floating-label sm:col-span-2">
+            <span>{{index .L "template_name"}}</span>
+            <input type="text" name="name" class="input input-bordered w-full" placeholder="Forward Basic" required>
+          </label>
+          <label class="floating-label sm:col-span-2">
+            <span>{{index .L "zone_kind"}}</span>
+            <select name="kind" class="select select-bordered w-full min-h-12 leading-tight" required>
+              <option value="forward">{{index .L "forward_zone"}}</option>
+              <option value="reverse-v4">{{index .L "reverse_v4_zone"}}</option>
+              <option value="reverse-v6">{{index .L "reverse_v6_zone"}}</option>
+            </select>
+          </label>
+          <button type="submit" class="btn btn-secondary sm:col-span-2">{{index .L "create_template"}}</button>
+        </form>
+        {{end}}
+
+        <div class="overflow-x-auto rounded-box border border-base-300">
+          <table class="table table-zebra">
+            <thead>
+              <tr>
+                <th>{{index .L "template_name"}}</th>
+                <th>{{index .L "zone_kind"}}</th>
+                <th class="text-right">{{index .L "actions"}}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Templates}}
+              <tr>
+                <td>
+                  <button
+                    class="link link-secondary font-semibold"
+                    hx-get="/templates/{{pathEscape .Name}}/editor{{if $.SelectedZone}}?zone={{pathEscape $.SelectedZone.Name}}&{{else}}?{{end}}q={{pathEscape $.ZoneQuery}}&page={{$.ZonePage}}"
+                    hx-target="#template-editor"
+                    hx-swap="outerHTML"
+                  >
+                    {{.Name}}
+                  </button>
+                </td>
+                <td class="min-w-28">
+                  {{if eq .Kind "forward"}}
+                  <span class="badge badge-info badge-outline whitespace-nowrap px-3 h-auto py-2">{{index $.L "forward_zone_short"}}</span>
+                  {{end}}
+                  {{if eq .Kind "reverse-v4"}}
+                  <span class="badge badge-secondary badge-outline whitespace-nowrap px-3 h-auto py-2">{{index $.L "reverse_v4_zone_short"}}</span>
+                  {{end}}
+                  {{if eq .Kind "reverse-v6"}}
+                  <span class="badge badge-accent badge-outline whitespace-nowrap px-3 h-auto py-2">{{index $.L "reverse_v6_zone_short"}}</span>
+                  {{end}}
+                </td>
+                <td class="text-right">
+                  {{if $.IsAdmin}}
+                  <form
+                    hx-post="/templates/{{pathEscape .Name}}/delete"
+                    hx-target="#workspace"
+                    hx-swap="outerHTML"
+                    class="inline"
+                  >
+                    <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
+                    <input type="hidden" name="q" value="{{$.ZoneQuery}}">
+                    <input type="hidden" name="page" value="{{$.ZonePage}}">
+                    <button
+                      type="submit"
+                      class="btn btn-error btn-xs"
+                      hx-confirm="{{index $.L "confirm_delete_template"}}"
+                    >
+                      {{index $.L "delete"}}
+                    </button>
+                  </form>
+                  {{end}}
+                </td>
+              </tr>
+              {{else}}
+              <tr>
+                <td colspan="3" class="text-center opacity-70 py-8">{{index .L "no_templates"}}</td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+
+    <div class="space-y-6">
+      {{template "zone_template_editor" .}}
+    </div>
+  </div>
+  {{end}}
 </div>
 {{end}}

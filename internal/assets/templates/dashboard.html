@@ -15,37 +15,69 @@
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css">
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    details[data-collapse-cookie] > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    details[data-collapse-cookie] > summary .collapse-toggle-icon {
+      transition: transform 0.18s ease;
+    }
+
+    details[data-collapse-cookie][open] > summary .collapse-toggle-icon {
+      transform: rotate(180deg);
+    }
+  </style>
 </head>
 <body class="min-h-screen bg-base-200">
   <header class="navbar bg-base-100 shadow-sm px-4 lg:px-8">
     <div class="flex-1">
       <a href="/" class="text-2xl font-black tracking-tight">{{index .L "app_title"}}</a>
     </div>
-    <div class="flex-none gap-2">
-      {{if .CurrentUser}}
-      <div class="hidden md:flex items-center gap-2">
-        <span class="badge badge-outline">{{.CurrentUser.Username}}</span>
-        <span class="badge {{if .IsAdmin}}badge-primary{{else}}badge-ghost{{end}}">{{.CurrentUser.Role}}</span>
-      </div>
-      {{end}}
-      <div class="join hidden md:flex">
-        {{range .Supported}}
-        <a href="/?lang={{.}}" class="btn btn-sm join-item {{if eq $.Lang .}}btn-primary{{else}}btn-ghost{{end}}">{{.}}</a>
+    <div class="flex-none">
+      <div class="flex items-center gap-1 sm:gap-2">
+        {{if .CurrentUser}}
+        <div class="hidden lg:flex items-center gap-2 mr-1">
+          <span class="badge badge-outline">{{.CurrentUser.Username}}</span>
+          <span class="badge {{if .IsAdmin}}badge-primary{{else}}badge-ghost{{end}}">{{.CurrentUser.Role}}</span>
+        </div>
         {{end}}
+
+        <details class="dropdown dropdown-end">
+          <summary class="btn btn-sm btn-ghost gap-2">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 3C16.9706 3 21 7.02944 21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3Z" stroke="currentColor" stroke-width="1.8"></path>
+              <path d="M3.6 9H20.4M3.6 15H20.4M12 3C14.2 5.4 15.45 8.62 15.5 12C15.45 15.38 14.2 18.6 12 21M12 3C9.8 5.4 8.55 8.62 8.5 12C8.55 15.38 9.8 18.6 12 21" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
+            </svg>
+            <span class="hidden sm:inline uppercase">{{.Lang}}</span>
+          </summary>
+          <ul class="menu dropdown-content z-[1] mt-2 w-36 rounded-box border border-base-300 bg-base-100 p-2 shadow">
+            {{range .Supported}}
+            <li><a href="/?lang={{.}}" class="{{if eq $.Lang .}}active font-semibold{{end}} uppercase">{{.}}</a></li>
+            {{end}}
+          </ul>
+        </details>
+
+        <button id="theme-toggle" type="button" class="btn btn-sm btn-ghost btn-square" title="{{index .L "toggle_theme"}}" aria-label="{{index .L "toggle_theme"}}">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 3.25V5.25M12 18.75V20.75M5.81 5.81L7.22 7.22M16.78 16.78L18.19 18.19M3.25 12H5.25M18.75 12H20.75M5.81 18.19L7.22 16.78M16.78 7.22L18.19 5.81" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+            <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8"></circle>
+          </svg>
+        </button>
+
+        <form method="post" action="/logout">
+          <button type="submit" class="btn btn-sm btn-outline">{{index .L "logout"}}</button>
+        </form>
       </div>
-      <button id="theme-toggle" type="button" class="btn btn-sm btn-ghost">{{index .L "toggle_theme"}}</button>
-      <form method="post" action="/logout">
-        <button type="submit" class="btn btn-sm btn-outline">{{index .L "logout"}}</button>
-      </form>
     </div>
   </header>
 
   <main class="container mx-auto p-4 lg:p-8 space-y-6">
-    <section class="rounded-box bg-gradient-to-r from-primary to-secondary text-primary-content p-6 shadow-lg">
-      <h1 class="text-3xl font-bold">{{index .L "dashboard_title"}}</h1>
-      <p class="opacity-90 mt-1">{{index .L "dashboard_intro"}}</p>
+    <section class="rounded-box bg-gradient-to-r from-primary to-secondary p-6 shadow-lg">
+      <h1 class="text-3xl font-bold text-base-content">{{index .L "dashboard_title"}}</h1>
+      <p class="mt-1 text-base-content opacity-90">{{index .L "dashboard_intro"}}</p>
       {{if not .IsAdmin}}
-      <p class="mt-2 text-sm opacity-90">{{index .L "read_only_mode"}}</p>
+      <p class="mt-2 text-sm text-base-content opacity-90">{{index .L "read_only_mode"}}</p>
       {{end}}
     </section>
 
@@ -54,9 +86,182 @@
     </div>
   </main>
 
+  <button
+    id="scroll-top"
+    type="button"
+    class="btn btn-primary btn-circle fixed bottom-5 right-5 z-40 shadow-lg opacity-0 pointer-events-none transition-opacity duration-200"
+    title="{{index .L "scroll_top"}}"
+    aria-label="{{index .L "scroll_top"}}"
+  >
+    <svg class="h-5 w-5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M10 14V6M10 6L6.5 9.5M10 6L13.5 9.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+    </svg>
+  </button>
+
   <script>
+    function setCookie(name, value, maxAgeSeconds) {
+      document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAgeSeconds}; samesite=lax`;
+    }
+
+    function getCookie(name) {
+      const pattern = `; ${document.cookie}`;
+      const parts = pattern.split(`; ${name}=`);
+      if (parts.length < 2) return "";
+      return decodeURIComponent(parts.pop().split(";").shift());
+    }
+
+    function bindCollapsePersistence(scope) {
+      const rootNode = scope instanceof Element ? scope : document;
+      const collapses = rootNode.querySelectorAll("details[data-collapse-cookie]");
+      collapses.forEach((element) => {
+        if (element.dataset.collapseBound === "1" || !element.id) return;
+        const cookieName = `go-pdns-ui-collapse-${element.id}`;
+        const saved = getCookie(cookieName);
+        if (saved === "open") element.open = true;
+        if (saved === "closed") element.open = false;
+        element.addEventListener("toggle", () => {
+          setCookie(cookieName, element.open ? "open" : "closed", 60 * 60 * 24 * 365);
+        });
+        element.dataset.collapseBound = "1";
+      });
+    }
+
+    function decodeTXTValue(raw) {
+      const trimmed = (raw || "").trim();
+      if (trimmed.length >= 2 && trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+        try {
+          return JSON.parse(trimmed);
+        } catch (_) {
+          return trimmed.slice(1, -1);
+        }
+      }
+      return trimmed;
+    }
+
+    function encodeTXTValue(raw) {
+      return JSON.stringify(raw || "");
+    }
+
+    function parseSRVValue(raw) {
+      const fields = (raw || "").trim().split(/\s+/).filter(Boolean);
+      if (fields.length !== 4) {
+        return { priority: "10", weight: "0", port: "5060", target: "" };
+      }
+      return {
+        priority: fields[0],
+        weight: fields[1],
+        port: fields[2],
+        target: fields[3]
+      };
+    }
+
+    function bindRecordDialogs(scope) {
+      const rootNode = scope instanceof Element ? scope : document;
+      const forms = rootNode.querySelectorAll("form[data-record-form]");
+      forms.forEach((form) => {
+        if (form.dataset.recordDialogBound === "1") return;
+
+        const typeInput = form.querySelector("select[name='type']");
+        const contentInput = form.querySelector("input[name='content']");
+        const txtButton = form.querySelector("[data-open-record-dialog='TXT']");
+        const srvButton = form.querySelector("[data-open-record-dialog='SRV']");
+        const dialogRoot = form.parentElement || form;
+        const txtDialog = dialogRoot.querySelector("dialog[data-record-dialog='TXT']");
+        const srvDialog = dialogRoot.querySelector("dialog[data-record-dialog='SRV']");
+
+        if (!typeInput || !contentInput || !txtButton || !srvButton || !txtDialog || !srvDialog) {
+          return;
+        }
+
+        const openTXTDialog = () => {
+          typeInput.value = "TXT";
+          const txtInput = txtDialog.querySelector("[data-txt-dialog-input]");
+          if (txtInput) {
+            txtInput.value = decodeTXTValue(contentInput.value);
+          }
+          txtDialog.showModal();
+        };
+
+        const openSRVDialog = () => {
+          typeInput.value = "SRV";
+          const parsed = parseSRVValue(contentInput.value);
+          const priorityInput = srvDialog.querySelector("[data-srv-priority]");
+          const weightInput = srvDialog.querySelector("[data-srv-weight]");
+          const portInput = srvDialog.querySelector("[data-srv-port]");
+          const targetInput = srvDialog.querySelector("[data-srv-target]");
+          if (priorityInput) priorityInput.value = parsed.priority;
+          if (weightInput) weightInput.value = parsed.weight;
+          if (portInput) portInput.value = parsed.port;
+          if (targetInput) targetInput.value = parsed.target;
+          srvDialog.showModal();
+        };
+
+        txtButton.addEventListener("click", openTXTDialog);
+        srvButton.addEventListener("click", openSRVDialog);
+
+        const txtApplyButton = txtDialog.querySelector("[data-txt-dialog-apply]");
+        if (txtApplyButton) {
+          txtApplyButton.addEventListener("click", () => {
+            const txtInput = txtDialog.querySelector("[data-txt-dialog-input]");
+            contentInput.value = encodeTXTValue(txtInput ? txtInput.value : "");
+            txtDialog.close();
+          });
+        }
+
+        const srvApplyButton = srvDialog.querySelector("[data-srv-dialog-apply]");
+        if (srvApplyButton) {
+          srvApplyButton.addEventListener("click", () => {
+            const priorityInput = srvDialog.querySelector("[data-srv-priority]");
+            const weightInput = srvDialog.querySelector("[data-srv-weight]");
+            const portInput = srvDialog.querySelector("[data-srv-port]");
+            const targetInput = srvDialog.querySelector("[data-srv-target]");
+            const priority = priorityInput ? priorityInput.value.trim() : "";
+            const weight = weightInput ? weightInput.value.trim() : "";
+            const port = portInput ? portInput.value.trim() : "";
+            const target = targetInput ? targetInput.value.trim() : "";
+            contentInput.value = `${priority} ${weight} ${port} ${target}`.trim();
+            srvDialog.close();
+          });
+        }
+
+        form.dataset.recordDialogBound = "1";
+
+        const autoOpenDialog = (form.dataset.autoOpenRecordDialog || "").toUpperCase();
+        const currentScrollY = window.scrollY;
+        if (autoOpenDialog === "TXT") {
+          requestAnimationFrame(() => {
+            openTXTDialog();
+            requestAnimationFrame(() => window.scrollTo(window.scrollX, currentScrollY));
+          });
+        } else if (autoOpenDialog === "SRV") {
+          requestAnimationFrame(() => {
+            openSRVDialog();
+            requestAnimationFrame(() => window.scrollTo(window.scrollX, currentScrollY));
+          });
+        }
+      });
+    }
+
     const root = document.documentElement;
     const toggle = document.getElementById("theme-toggle");
+    const scrollTopButton = document.getElementById("scroll-top");
+
+    function updateScrollTopButtonVisibility() {
+      if (!scrollTopButton) return;
+      const shouldShow = window.scrollY > 320;
+      scrollTopButton.classList.toggle("opacity-0", !shouldShow);
+      scrollTopButton.classList.toggle("pointer-events-none", !shouldShow);
+      scrollTopButton.classList.toggle("opacity-100", shouldShow);
+    }
+
+    if (scrollTopButton) {
+      scrollTopButton.addEventListener("click", () => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      window.addEventListener("scroll", updateScrollTopButtonVisibility, { passive: true });
+      updateScrollTopButtonVisibility();
+    }
+
     if (toggle) {
       toggle.addEventListener("click", () => {
         const current = root.getAttribute("data-theme") || "light";
@@ -65,6 +270,57 @@
         localStorage.setItem("go-pdns-ui-theme", next);
       });
     }
+
+    bindCollapsePersistence(document);
+    bindRecordDialogs(document);
+    let preservedScrollY = null;
+    document.body.addEventListener("htmx:beforeRequest", (event) => {
+      const detail = event.detail || {};
+      const trigger = detail.requestConfig ? detail.requestConfig.elt : null;
+      if (!trigger || !trigger.closest) {
+        preservedScrollY = null;
+        return;
+      }
+      if (trigger.closest("[data-preserve-scroll='1']")) {
+        preservedScrollY = window.scrollY;
+        return;
+      }
+      preservedScrollY = null;
+    });
+
+    document.body.addEventListener("htmx:afterSwap", (event) => {
+      bindCollapsePersistence(event.target);
+      bindRecordDialogs(event.target);
+      requestAnimationFrame(updateScrollTopButtonVisibility);
+
+      const detail = event.detail || {};
+      const target = detail.target;
+      const trigger = detail.requestConfig ? detail.requestConfig.elt : null;
+
+      if (
+        preservedScrollY !== null &&
+        trigger &&
+        trigger.closest &&
+        trigger.closest("[data-preserve-scroll='1']")
+      ) {
+        const y = preservedScrollY;
+        preservedScrollY = null;
+        requestAnimationFrame(() => {
+          window.scrollTo(window.scrollX, y);
+          requestAnimationFrame(() => window.scrollTo(window.scrollX, y));
+        });
+        return;
+      }
+
+      if (!target || target.id !== "zone-editor" || !trigger) return;
+      const source = trigger.closest ? trigger.closest("[data-zone-select='1']") : null;
+      if (!source) return;
+      requestAnimationFrame(() => {
+        const currentEditor = document.getElementById("zone-editor");
+        if (!currentEditor) return;
+        currentEditor.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
   </script>
 </body>
 </html>

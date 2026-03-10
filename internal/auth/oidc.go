@@ -123,15 +123,36 @@ func mapGroupsToRole(groups []string, adminGroup, userGroup string) (Role, error
 		return RoleUser, nil
 	}
 
-	if adminGroup != "" && slices.Contains(normalized, strings.ToLower(adminGroup)) {
-		return RoleAdmin, nil
-	}
-
+	role := Role("")
 	if userGroup != "" && slices.Contains(normalized, strings.ToLower(userGroup)) {
-		return RoleUser, nil
+		role = higherRole(role, RoleUser)
+	}
+	if adminGroup != "" && slices.Contains(normalized, strings.ToLower(adminGroup)) {
+		role = higherRole(role, RoleAdmin)
+	}
+	if role != "" {
+		return role, nil
 	}
 
 	return "", ErrOIDCGroupsRejected
+}
+
+func higherRole(left, right Role) Role {
+	if roleRank(right) > roleRank(left) {
+		return right
+	}
+	return left
+}
+
+func roleRank(role Role) int {
+	switch role {
+	case RoleAdmin:
+		return 2
+	case RoleUser:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func parseGroups(raw interface{}) []string {

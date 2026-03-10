@@ -1,6 +1,10 @@
 package pdns
 
 import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/croessner/go-pdns-ui/internal/domain"
@@ -76,5 +80,71 @@ func TestZoneFromPDNSConvertsToRelativeNames(t *testing.T) {
 
 	if !foundRoot || !foundWWW {
 		t.Fatalf("expected @ NS and www A records after mapping, got %+v", mapped.Records)
+	}
+}
+
+func TestMapRepositoryErrorNotFoundOnCollectionIsBackend(t *testing.T) {
+	t.Parallel()
+
+	err := mapRepositoryError(&APIError{
+		Method: http.MethodGet,
+		Path:   "/servers/unknown/zones",
+		Status: http.StatusNotFound,
+		Body:   "Not Found",
+	})
+	if !errors.Is(err, domain.ErrBackend) {
+		t.Fatalf("expected backend error, got %v", err)
+	}
+}
+
+func TestMapRepositoryErrorNotFoundOnZoneResourceIsZoneNotFound(t *testing.T) {
+	t.Parallel()
+
+	err := mapRepositoryError(&APIError{
+		Method: http.MethodGet,
+		Path:   "/servers/localhost/zones/example.org.",
+		Status: http.StatusNotFound,
+		Body:   "Not Found",
+	})
+	if !errors.Is(err, domain.ErrZoneNotFound) {
+		t.Fatalf("expected zone not found, got %v", err)
+	}
+}
+
+func TestListZonesFallsBackToDiscoveredServerID(t *testing.T) {
+	t.Parallel()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/servers/wrong/zones", func(w http.ResponseWriter, _ *http.Request) {
+		http.NotFound(w, nil)
+	})
+	mux.HandleFunc("/servers", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"localhost"}]`))
+	})
+	mux.HandleFunc("/servers/localhost/zones", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := NewClient(Config{
+		BaseURL: server.URL,
+		APIKey:  "test",
+		Timeout: 0,
+	})
+	repo := NewRepository(client, "wrong")
+
+	zones, err := repo.ListZones(context.Background())
+	if err != nil {
+		t.Fatalf("expected fallback to discovered server ID, got error: %v", err)
+	}
+	if len(zones) != 0 {
+		t.Fatalf("expected empty zone list, got %d entries", len(zones))
+	}
+	if repo.getServerID() != "localhost" {
+		t.Fatalf("expected discovered server id localhost, got %q", repo.getServerID())
 	}
 }

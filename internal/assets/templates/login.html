@@ -21,14 +21,27 @@
       <div class="text-center lg:text-left max-w-lg">
         <h1 class="text-5xl font-black">{{index .L "app_title"}}</h1>
         <p class="py-4 opacity-80">{{index .L "login_subtitle"}}</p>
+        {{if .ShowLoginHint}}
         <p class="text-sm opacity-70">{{index .L "login_hint"}}</p>
+        {{end}}
       </div>
 
       <div class="card bg-base-100 w-full max-w-sm shrink-0 shadow-2xl">
         <div class="card-body gap-4">
           <div class="flex items-center justify-between">
             <h2 class="card-title">{{index .L "login_title"}}</h2>
-            <button id="theme-toggle" type="button" class="btn btn-ghost btn-sm">{{index .L "toggle_theme"}}</button>
+            <button
+              id="theme-toggle"
+              type="button"
+              class="btn btn-ghost btn-sm btn-square"
+              title="{{index .L "toggle_theme"}}"
+              aria-label="{{index .L "toggle_theme"}}"
+            >
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 3.25V5.25M12 18.75V20.75M5.81 5.81L7.22 7.22M16.78 16.78L18.19 18.19M3.25 12H5.25M18.75 12H20.75M5.81 18.19L7.22 16.78M16.78 7.22L18.19 5.81" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8"></circle>
+              </svg>
+            </button>
           </div>
 
           {{if .Error}}

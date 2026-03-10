@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/croessner/go-pdns-ui/internal/domain"
 )
@@ -15,6 +16,7 @@ import (
 type Repository struct {
 	client   *Client
 	serverID string
+	mu       sync.RWMutex
 }
 
 func NewRepository(client *Client, serverID string) *Repository {
@@ -26,8 +28,22 @@ func NewRepository(client *Client, serverID string) *Repository {
 
 func (r *Repository) ListZones(ctx context.Context) ([]domain.Zone, error) {
 	var zones []pdnsZone
-	if err := r.client.get(ctx, r.zonesPath(), &zones); err != nil {
-		return nil, mapRepositoryError(err)
+	path := r.zonesPath()
+	if err := r.client.get(ctx, path, &zones); err != nil {
+		if isStatusNotFound(err) {
+			fallbackServerID, resolveErr := r.discoverServerID(ctx)
+			if resolveErr == nil && fallbackServerID != "" && fallbackServerID != r.getServerID() {
+				r.setServerID(fallbackServerID)
+				path = r.zonesPath()
+				if retryErr := r.client.get(ctx, path, &zones); retryErr != nil {
+					return nil, mapRepositoryError(retryErr)
+				}
+			} else {
+				return nil, mapRepositoryError(err)
+			}
+		} else {
+			return nil, mapRepositoryError(err)
+		}
 	}
 
 	result := make([]domain.Zone, 0, len(zones))
@@ -168,12 +184,16 @@ type pdnsUpdateZoneRequest struct {
 	DNSSEC bool   `json:"dnssec"`
 }
 
+type pdnsServer struct {
+	ID string `json:"id"`
+}
+
 func (r *Repository) zonesPath() string {
-	return "/servers/" + url.PathEscape(r.serverID) + "/zones"
+	return "/servers/" + url.PathEscape(r.getServerID()) + "/zones"
 }
 
 func (r *Repository) zonePath(zoneName string) string {
-	return "/servers/" + url.PathEscape(r.serverID) + "/zones/" + url.PathEscape(ensureFQDN(zoneName))
+	return "/servers/" + url.PathEscape(r.getServerID()) + "/zones/" + url.PathEscape(ensureFQDN(zoneName))
 }
 
 func validateCreateZone(zone domain.Zone) error {
@@ -343,7 +363,10 @@ func mapRepositoryError(err error) error {
 
 	switch apiErr.Status {
 	case http.StatusNotFound:
-		return domain.ErrZoneNotFound
+		if isZoneResourcePath(apiErr.Path) {
+			return domain.ErrZoneNotFound
+		}
+		return fmt.Errorf("%w: %v", domain.ErrBackend, err)
 	case http.StatusConflict:
 		return domain.ErrZoneExists
 	case http.StatusBadRequest:
@@ -425,4 +448,50 @@ func ensureFQDN(name string) string {
 		return ""
 	}
 	return name + "."
+}
+
+func (r *Repository) discoverServerID(ctx context.Context) (string, error) {
+	var servers []pdnsServer
+	if err := r.client.get(ctx, "/servers", &servers); err != nil {
+		return "", err
+	}
+
+	for _, server := range servers {
+		if strings.EqualFold(strings.TrimSpace(server.ID), "localhost") {
+			return strings.TrimSpace(server.ID), nil
+		}
+	}
+
+	for _, server := range servers {
+		id := strings.TrimSpace(server.ID)
+		if id != "" {
+			return id, nil
+		}
+	}
+
+	return "", nil
+}
+
+func (r *Repository) getServerID() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.serverID
+}
+
+func (r *Repository) setServerID(serverID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.serverID = strings.TrimSpace(serverID)
+}
+
+func isStatusNotFound(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound
+}
+
+func isZoneResourcePath(path string) bool {
+	path = strings.Trim(path, "/")
+	parts := strings.Split(path, "/")
+	// /servers/{id}/zones/{zone}
+	return len(parts) >= 4 && parts[0] == "servers" && parts[2] == "zones"
 }

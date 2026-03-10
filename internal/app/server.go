@@ -22,6 +22,8 @@ func Run(ctx context.Context, addr string) error {
 		return err
 	}
 
+	templateService := newTemplateService()
+
 	authService, err := auth.NewInMemoryServiceFromEnv(ctx)
 	if err != nil {
 		return fmt.Errorf("initialize auth: %w", err)
@@ -32,7 +34,7 @@ func Run(ctx context.Context, addr string) error {
 		return fmt.Errorf("initialize i18n: %w", err)
 	}
 
-	handler, err := ui.NewHandler(assets.Files, zoneService, authService, i18nService)
+	handler, err := ui.NewHandler(assets.Files, zoneService, templateService, authService, i18nService)
 	if err != nil {
 		return fmt.Errorf("initialize handlers: %w", err)
 	}
@@ -109,6 +111,75 @@ func seedZones() []domain.Zone {
 					Type:    "PTR",
 					TTL:     3600,
 					Content: ensureFQDN("www.example.org"),
+				},
+			},
+		},
+	}
+}
+
+func newTemplateService() domain.ZoneTemplateService {
+	return domain.NewInMemoryZoneTemplateService(seedTemplates())
+}
+
+func seedTemplates() []domain.ZoneTemplate {
+	return []domain.ZoneTemplate{
+		{
+			Name: "Forward Basic",
+			Kind: domain.ZoneForward,
+			Records: []domain.Record{
+				{
+					Name:    "@",
+					Type:    "SOA",
+					TTL:     3600,
+					Content: "ns1." + domain.TemplateZoneNameToken + " hostmaster." + domain.TemplateZoneNameToken + " 1 10800 3600 604800 3600",
+				},
+				{
+					Name:    "@",
+					Type:    "NS",
+					TTL:     3600,
+					Content: "ns1." + domain.TemplateZoneFQDNToken,
+				},
+				{
+					Name:    "www",
+					Type:    "A",
+					TTL:     300,
+					Content: "192.0.2.10",
+				},
+			},
+		},
+		{
+			Name: "Reverse v4 Basic",
+			Kind: domain.ZoneReverseV4,
+			Records: []domain.Record{
+				{
+					Name:    "@",
+					Type:    "SOA",
+					TTL:     3600,
+					Content: "ns1." + domain.TemplateZoneNameToken + " hostmaster." + domain.TemplateZoneNameToken + " 1 10800 3600 604800 3600",
+				},
+				{
+					Name:    "@",
+					Type:    "NS",
+					TTL:     3600,
+					Content: "ns1." + domain.TemplateZoneFQDNToken,
+				},
+			},
+		},
+		{
+			Name: "Reverse v6 Basic",
+			Kind: domain.ZoneReverseV6,
+			Records: []domain.Record{
+				{
+					Name:    "@",
+					Type:    "SOA",
+					TTL:     3600,
+					Content: "ns1." + domain.TemplateZoneNameToken + " hostmaster." + domain.TemplateZoneNameToken + " 1 10800 3600 604800 3600",
+				},
+				{
+					Name:    "@",
+					Type:    "NS",
+					TTL:     3600,
+					Content: "ns1." + domain.TemplateZoneFQDNToken,
 				},
 			},
 		},

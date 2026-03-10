@@ -1,0 +1,224 @@
+{{define "zone_template_editor"}}
+<details id="template-editor" data-collapse-cookie="1" class="collapse bg-base-100 border border-base-300 shadow-md" open>
+  <summary class="collapse-title list-none flex items-center justify-between gap-2 text-xl font-semibold">
+    <span>{{index .L "template_editor"}}{{if .SelectedTemplate}}: {{.SelectedTemplate.Name}}{{end}}</span>
+    <svg class="collapse-toggle-icon h-5 w-5 opacity-70" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+    </svg>
+  </summary>
+  <div class="collapse-content">
+    {{if .SelectedTemplate}}
+    <div class="space-y-6">
+      <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <p class="text-sm opacity-70">{{index .L "template_tokens_hint"}}</p>
+        <div>
+          {{if eq .SelectedTemplate.Kind "forward"}}
+          <span class="badge badge-info badge-outline whitespace-nowrap px-3 h-auto py-2">{{index .L "forward_zone_short"}}</span>
+          {{end}}
+          {{if eq .SelectedTemplate.Kind "reverse-v4"}}
+          <span class="badge badge-secondary badge-outline whitespace-nowrap px-3 h-auto py-2">{{index .L "reverse_v4_zone_short"}}</span>
+          {{end}}
+          {{if eq .SelectedTemplate.Kind "reverse-v6"}}
+          <span class="badge badge-accent badge-outline whitespace-nowrap px-3 h-auto py-2">{{index .L "reverse_v6_zone_short"}}</span>
+          {{end}}
+        </div>
+      </div>
+
+      <div class="space-y-3">
+        <h3 class="text-lg font-semibold">{{index .L "records"}}</h3>
+        <div class="overflow-x-auto rounded-box border border-base-300">
+          <table class="table table-zebra">
+            <thead>
+              <tr>
+                <th>{{index .L "record_name"}}</th>
+                <th>{{index .L "record_type"}}</th>
+                <th>{{index .L "ttl"}}</th>
+                <th>{{index .L "content"}}</th>
+                <th class="text-right">{{index .L "actions"}}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .SelectedTemplate.Records}}
+              <tr>
+                <td class="font-mono text-xs">{{.Name}}</td>
+                <td><span class="badge badge-outline">{{.Type}}</span></td>
+                <td>{{.TTL}}</td>
+                <td class="max-w-[350px] truncate" title="{{.Content}}">{{.Content}}</td>
+                <td class="text-right">
+                  {{if $.IsAdmin}}
+                  <form
+                    hx-get="/templates/{{pathEscape $.SelectedTemplate.Name}}/editor"
+                    hx-target="#template-editor"
+                    hx-swap="outerHTML"
+                    class="inline"
+                    data-preserve-scroll="1"
+                  >
+                    <input type="hidden" name="zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
+                    <input type="hidden" name="q" value="{{$.ZoneQuery}}">
+                    <input type="hidden" name="page" value="{{$.ZonePage}}">
+                    <input type="hidden" name="edit_name" value="{{.Name}}">
+                    <input type="hidden" name="edit_type" value="{{.Type}}">
+                    <button type="submit" class="btn btn-ghost btn-xs">{{index $.L "edit_record"}}</button>
+                  </form>
+                  <form
+                    hx-post="/templates/{{pathEscape $.SelectedTemplate.Name}}/records/delete"
+                    hx-target="#template-editor"
+                    hx-swap="outerHTML"
+                    class="inline"
+                  >
+                    <input type="hidden" name="name" value="{{.Name}}">
+                    <input type="hidden" name="type" value="{{.Type}}">
+                    <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
+                    <input type="hidden" name="q" value="{{$.ZoneQuery}}">
+                    <input type="hidden" name="page" value="{{$.ZonePage}}">
+                    <button
+                      type="submit"
+                      class="btn btn-error btn-xs"
+                      hx-confirm="{{index $.L "confirm_delete_record"}}"
+                    >
+                      {{index $.L "delete_record"}}
+                    </button>
+                  </form>
+                  {{end}}
+                </td>
+              </tr>
+              {{else}}
+              <tr>
+                <td colspan="5" class="text-center py-8 opacity-70">{{index .L "no_records"}}</td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {{if .IsAdmin}}
+      <form
+        hx-post="/templates/{{pathEscape .SelectedTemplate.Name}}/records"
+        hx-target="#template-editor"
+        hx-swap="outerHTML"
+        class="grid gap-3 md:grid-cols-6"
+        data-record-form="template"
+        data-auto-open-record-dialog="{{if and .TemplateRecordForm.Editing (eq .TemplateRecordForm.Type "TXT")}}TXT{{else if and .TemplateRecordForm.Editing (eq .TemplateRecordForm.Type "SRV")}}SRV{{end}}"
+      >
+        <input type="hidden" name="selected_zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
+        <input type="hidden" name="q" value="{{.ZoneQuery}}">
+        <input type="hidden" name="page" value="{{.ZonePage}}">
+        <input type="hidden" name="old_name" value="{{.TemplateRecordForm.OldName}}">
+        <input type="hidden" name="old_type" value="{{.TemplateRecordForm.OldType}}">
+        <label class="floating-label md:col-span-2">
+          <span>{{index .L "record_name"}}</span>
+          <input type="text" name="name" value="{{.TemplateRecordForm.Name}}" class="input input-bordered w-full" placeholder="@ / www / 10" required>
+        </label>
+        <label class="floating-label">
+          <span>{{index .L "record_type"}}</span>
+          <select name="type" class="select select-bordered w-full">
+            <option {{if eq .TemplateRecordForm.Type "A"}}selected{{end}}>A</option>
+            <option {{if eq .TemplateRecordForm.Type "AAAA"}}selected{{end}}>AAAA</option>
+            <option {{if eq .TemplateRecordForm.Type "CNAME"}}selected{{end}}>CNAME</option>
+            <option {{if eq .TemplateRecordForm.Type "MX"}}selected{{end}}>MX</option>
+            <option {{if eq .TemplateRecordForm.Type "NS"}}selected{{end}}>NS</option>
+            <option {{if eq .TemplateRecordForm.Type "TXT"}}selected{{end}}>TXT</option>
+            <option {{if eq .TemplateRecordForm.Type "SRV"}}selected{{end}}>SRV</option>
+            <option {{if eq .TemplateRecordForm.Type "PTR"}}selected{{end}}>PTR</option>
+            <option {{if eq .TemplateRecordForm.Type "SOA"}}selected{{end}}>SOA</option>
+            <option {{if eq .TemplateRecordForm.Type "CAA"}}selected{{end}}>CAA</option>
+            <option {{if eq .TemplateRecordForm.Type "TLSA"}}selected{{end}}>TLSA</option>
+          </select>
+        </label>
+        <label class="floating-label">
+          <span>{{index .L "ttl"}}</span>
+          <input type="number" min="60" step="60" name="ttl" value="{{.TemplateRecordForm.TTL}}" class="input input-bordered w-full" required>
+        </label>
+        <label class="floating-label md:col-span-2">
+          <span>{{index .L "content"}}</span>
+          <div class="flex flex-col gap-2 sm:flex-row">
+            <input type="text" name="content" value="{{.TemplateRecordForm.Content}}" class="input input-bordered w-full" required>
+            <div class="flex gap-2 sm:shrink-0">
+              <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="TXT">{{index .L "txt_helper"}}</button>
+              <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="SRV">{{index .L "srv_helper"}}</button>
+            </div>
+          </div>
+        </label>
+        <div class="md:col-span-6 flex flex-wrap gap-2">
+          <button type="submit" class="btn btn-secondary">
+            {{if .TemplateRecordForm.Editing}}
+            {{index .L "update_record"}}
+            {{else}}
+            {{index .L "save_record"}}
+            {{end}}
+          </button>
+          {{if .TemplateRecordForm.Editing}}
+          <button
+            type="button"
+            class="btn btn-ghost"
+            hx-get="/templates/{{pathEscape .SelectedTemplate.Name}}/editor{{if .SelectedZone}}?zone={{pathEscape .SelectedZone.Name}}&{{else}}?{{end}}q={{pathEscape .ZoneQuery}}&page={{.ZonePage}}"
+            hx-target="#template-editor"
+            hx-swap="outerHTML"
+          >
+            {{index .L "cancel_edit"}}
+          </button>
+          {{end}}
+        </div>
+      </form>
+
+      <dialog class="modal" data-record-dialog="TXT">
+        <div class="modal-box">
+          <h3 class="font-semibold text-lg">{{index .L "txt_dialog_title"}}</h3>
+          <p class="text-sm opacity-70 mt-1">{{index .L "txt_dialog_hint"}}</p>
+          <textarea class="textarea textarea-bordered w-full mt-4 min-h-32" data-txt-dialog-input placeholder="{{index .L "txt_dialog_placeholder"}}"></textarea>
+          <div class="modal-action">
+            <button type="button" class="btn btn-primary" data-txt-dialog-apply>{{index .L "apply"}}</button>
+            <form method="dialog">
+              <button class="btn">{{index .L "cancel"}}</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>{{index .L "close"}}</button>
+        </form>
+      </dialog>
+
+      <dialog class="modal" data-record-dialog="SRV">
+        <div class="modal-box">
+          <h3 class="font-semibold text-lg">{{index .L "srv_dialog_title"}}</h3>
+          <p class="text-sm opacity-70 mt-1">{{index .L "srv_dialog_hint"}}</p>
+          <div class="grid gap-3 sm:grid-cols-3 mt-4">
+            <label class="floating-label">
+              <span>{{index .L "srv_priority"}}</span>
+              <input type="number" min="0" max="65535" value="10" class="input input-bordered w-full" data-srv-priority>
+            </label>
+            <label class="floating-label">
+              <span>{{index .L "srv_weight"}}</span>
+              <input type="number" min="0" max="65535" value="0" class="input input-bordered w-full" data-srv-weight>
+            </label>
+            <label class="floating-label">
+              <span>{{index .L "srv_port"}}</span>
+              <input type="number" min="0" max="65535" value="5060" class="input input-bordered w-full" data-srv-port>
+            </label>
+            <label class="floating-label sm:col-span-3">
+              <span>{{index .L "srv_target"}}</span>
+              <input type="text" class="input input-bordered w-full" data-srv-target placeholder="sip.example.org.">
+            </label>
+          </div>
+          <div class="modal-action">
+            <button type="button" class="btn btn-primary" data-srv-dialog-apply>{{index .L "apply"}}</button>
+            <form method="dialog">
+              <button class="btn">{{index .L "cancel"}}</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>{{index .L "close"}}</button>
+        </form>
+      </dialog>
+      {{end}}
+    </div>
+    {{else}}
+    <div class="py-6 text-center">
+      <p class="opacity-70">{{index .L "select_template_hint"}}</p>
+    </div>
+    {{end}}
+  </div>
+</details>
+{{end}}

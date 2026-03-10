@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 type APIError struct {
@@ -26,6 +28,7 @@ type Client struct {
 	baseURL string
 	apiKey  string
 	http    *http.Client
+	mu      sync.RWMutex
 }
 
 func NewClient(config Config) *Client {
@@ -60,17 +63,48 @@ func (c *Client) delete(ctx context.Context, path string) error {
 
 func (c *Client) request(ctx context.Context, method, path string, body interface{}, out interface{}) error {
 	path = "/" + strings.TrimLeft(path, "/")
-	endpoint, err := url.JoinPath(c.baseURL, path)
+	var payload []byte
+	if body != nil {
+		marshaled, marshalErr := json.Marshal(body)
+		if marshalErr != nil {
+			return fmt.Errorf("marshal request body: %w", marshalErr)
+		}
+		payload = marshaled
+	}
+
+	baseURL := c.getBaseURL()
+	err := c.requestOnce(ctx, baseURL, method, path, payload, out)
+	if err == nil {
+		return nil
+	}
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || !shouldRetryWithAPIV1(path, apiErr.Status) {
+		return err
+	}
+
+	retryBaseURL, ok := withAPIV1Suffix(baseURL)
+	if !ok || retryBaseURL == baseURL {
+		return err
+	}
+
+	retryErr := c.requestOnce(ctx, retryBaseURL, method, path, payload, out)
+	if retryErr != nil {
+		return retryErr
+	}
+
+	c.setBaseURL(retryBaseURL)
+	return nil
+}
+
+func (c *Client) requestOnce(ctx context.Context, baseURL, method, path string, payload []byte, out interface{}) error {
+	endpoint, err := url.JoinPath(baseURL, path)
 	if err != nil {
 		return fmt.Errorf("build url: %w", err)
 	}
 
 	var requestBody io.Reader
-	if body != nil {
-		payload, marshalErr := json.Marshal(body)
-		if marshalErr != nil {
-			return fmt.Errorf("marshal request body: %w", marshalErr)
-		}
+	if len(payload) > 0 {
 		requestBody = bytes.NewReader(payload)
 	}
 
@@ -81,7 +115,7 @@ func (c *Client) request(ctx context.Context, method, path string, body interfac
 
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-API-Key", c.apiKey)
-	if body != nil {
+	if len(payload) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
@@ -118,4 +152,45 @@ func (c *Client) request(ctx context.Context, method, path string, body interfac
 	}
 
 	return nil
+}
+
+func (c *Client) getBaseURL() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.baseURL
+}
+
+func (c *Client) setBaseURL(baseURL string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.baseURL = baseURL
+}
+
+func shouldRetryWithAPIV1(path string, status int) bool {
+	if status != http.StatusNotFound {
+		return false
+	}
+
+	normalized := "/" + strings.TrimLeft(strings.TrimSpace(path), "/")
+	return normalized == "/servers" || strings.HasPrefix(normalized, "/servers/")
+}
+
+func withAPIV1Suffix(baseURL string) (string, bool) {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return "", false
+	}
+
+	trimmedPath := strings.TrimRight(parsed.Path, "/")
+	if strings.HasSuffix(trimmedPath, "/api/v1") {
+		return strings.TrimRight(parsed.String(), "/"), false
+	}
+
+	if trimmedPath == "" {
+		parsed.Path = "/api/v1"
+	} else {
+		parsed.Path = trimmedPath + "/api/v1"
+	}
+
+	return strings.TrimRight(parsed.String(), "/"), true
 }

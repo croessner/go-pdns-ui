@@ -31,3 +31,9 @@ type Zone struct {
 	DNSSECEnabled bool
 	Records       []Record
 }
+
+type ZoneTemplate struct {
+	Name    string
+	Kind    ZoneKind
+	Records []Record
+}

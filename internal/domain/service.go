@@ -3,7 +3,9 @@ package domain
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -47,9 +49,6 @@ func (s *DraftZoneService) ListZones(ctx context.Context) ([]Zone, error) {
 	liveByName := make(map[string]struct{}, len(liveZones))
 	for _, zone := range liveZones {
 		liveByName[zone.Name] = struct{}{}
-		if _, exists := s.draft[zone.Name]; !exists {
-			s.draft[zone.Name] = cloneZone(zone)
-		}
 	}
 
 	for zoneName := range s.draft {
@@ -288,11 +287,93 @@ func normalizeRecord(record Record) (Record, error) {
 		return Record{}, ErrInvalidRec
 	}
 
+	normalizedContent, err := normalizeRecordContent(record.Type, record.Content)
+	if err != nil {
+		return Record{}, err
+	}
+	record.Content = normalizedContent
+
 	if record.TTL == 0 {
 		record.TTL = 3600
 	}
 
 	return record, nil
+}
+
+func normalizeRecordContent(recordType, content string) (string, error) {
+	switch recordType {
+	case "A":
+		addr, err := netip.ParseAddr(content)
+		if err != nil || !addr.Is4() {
+			return "", fmt.Errorf("%w: A record content must be a valid IPv4 address", ErrInvalidRec)
+		}
+	case "AAAA":
+		addr, err := netip.ParseAddr(content)
+		if err != nil || !addr.Is6() {
+			return "", fmt.Errorf("%w: AAAA record content must be a valid IPv6 address", ErrInvalidRec)
+		}
+	case "MX":
+		fields := strings.Fields(content)
+		if len(fields) != 2 {
+			return "", fmt.Errorf("%w: MX record content must be '<priority> <target>'", ErrInvalidRec)
+		}
+		if _, err := parseUint16(fields[0]); err != nil {
+			return "", fmt.Errorf("%w: MX priority must be between 0 and 65535", ErrInvalidRec)
+		}
+		if strings.TrimSpace(fields[1]) == "" {
+			return "", fmt.Errorf("%w: MX target must not be empty", ErrInvalidRec)
+		}
+	case "SOA":
+		// SOA expects at least mname rname serial refresh retry expire minimum.
+		if len(strings.Fields(content)) < 7 {
+			return "", fmt.Errorf("%w: SOA content must contain at least 7 fields", ErrInvalidRec)
+		}
+	case "TXT":
+		content = normalizeTXTContent(content)
+	case "SRV":
+		fields := strings.Fields(content)
+		if len(fields) != 4 {
+			return "", fmt.Errorf("%w: SRV record content must be '<priority> <weight> <port> <target>'", ErrInvalidRec)
+		}
+		if _, err := parseUint16(fields[0]); err != nil {
+			return "", fmt.Errorf("%w: SRV priority must be between 0 and 65535", ErrInvalidRec)
+		}
+		if _, err := parseUint16(fields[1]); err != nil {
+			return "", fmt.Errorf("%w: SRV weight must be between 0 and 65535", ErrInvalidRec)
+		}
+		if _, err := parseUint16(fields[2]); err != nil {
+			return "", fmt.Errorf("%w: SRV port must be between 0 and 65535", ErrInvalidRec)
+		}
+		if strings.TrimSpace(fields[3]) == "" {
+			return "", fmt.Errorf("%w: SRV target must not be empty", ErrInvalidRec)
+		}
+	default:
+		// Keep compatibility with existing/unknown RR types and only enforce non-empty content.
+	}
+
+	return content, nil
+}
+
+func normalizeTXTContent(content string) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return content
+	}
+
+	if strings.HasPrefix(content, "\"") && strings.HasSuffix(content, "\"") {
+		return content
+	}
+
+	return strconv.Quote(content)
+}
+
+func parseUint16(raw string) (uint16, error) {
+	value, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 16)
+	if err != nil {
+		return 0, err
+	}
+
+	return uint16(value), nil
 }
 
 func defaultRecords(zoneName string) []Record {
@@ -301,15 +382,26 @@ func defaultRecords(zoneName string) []Record {
 			Name:    "@",
 			Type:    "SOA",
 			TTL:     3600,
-			Content: "ns1." + zoneName + " hostmaster." + zoneName + " 1 10800 3600 604800 3600",
+			Content: ensureTrailingDot("ns1."+zoneName) + " " + ensureTrailingDot("hostmaster."+zoneName) + " 1 10800 3600 604800 3600",
 		},
 		{
 			Name:    "@",
 			Type:    "NS",
 			TTL:     3600,
-			Content: "ns1." + zoneName + ".",
+			Content: ensureTrailingDot("ns1." + zoneName),
 		},
 	}
+}
+
+func ensureTrailingDot(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if strings.HasSuffix(name, ".") {
+		return name
+	}
+	return name + "."
 }
 
 func cloneZone(zone Zone) Zone {

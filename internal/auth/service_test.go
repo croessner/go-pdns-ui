@@ -45,6 +45,22 @@ func TestMapGroupsToRole(t *testing.T) {
 	if role != RoleUser {
 		t.Fatalf("expected user role, got %q", role)
 	}
+
+	role, err = mapGroupsToRole([]string{"user", "admin"}, "admin", "user")
+	if err != nil {
+		t.Fatalf("expected both groups to map, got error: %v", err)
+	}
+	if role != RoleAdmin {
+		t.Fatalf("expected highest role to win, got %q", role)
+	}
+
+	role, err = mapGroupsToRole([]string{"admin", "user"}, "admin", "user")
+	if err != nil {
+		t.Fatalf("expected both groups to map, got error: %v", err)
+	}
+	if role != RoleAdmin {
+		t.Fatalf("expected highest role independent of order, got %q", role)
+	}
 }
 
 func TestMapGroupsRejectsUnknownGroups(t *testing.T) {
@@ -53,5 +69,28 @@ func TestMapGroupsRejectsUnknownGroups(t *testing.T) {
 	_, err := mapGroupsToRole([]string{"guests"}, "admin", "user")
 	if err == nil {
 		t.Fatalf("expected unknown groups to fail")
+	}
+}
+
+func TestShowDefaultCredentialsHintFalseForExplicitCredentials(t *testing.T) {
+	svc, err := NewInMemoryService(context.Background(), "admin", "secret", OIDCConfig{})
+	if err != nil {
+		t.Fatalf("new auth service failed: %v", err)
+	}
+	if svc.ShowDefaultCredentialsHint() {
+		t.Fatalf("expected default-credentials hint to be disabled for explicit credentials")
+	}
+}
+
+func TestShowDefaultCredentialsHintFalseWhenEnvOverridesAreSet(t *testing.T) {
+	t.Setenv("GO_PDNS_UI_USERNAME", "custom-admin")
+	t.Setenv("GO_PDNS_UI_PASSWORD", "custom-secret")
+
+	svc, err := NewInMemoryServiceFromEnv(context.Background())
+	if err != nil {
+		t.Fatalf("new auth service from env failed: %v", err)
+	}
+	if svc.ShowDefaultCredentialsHint() {
+		t.Fatalf("expected default-credentials hint to be disabled when env credentials are set")
 	}
 }

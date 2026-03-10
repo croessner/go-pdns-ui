@@ -6,11 +6,14 @@ import (
 )
 
 var (
-	ErrZoneExists   = errors.New("zone already exists")
-	ErrZoneNotFound = errors.New("zone not found")
-	ErrInvalidZone  = errors.New("invalid zone")
-	ErrInvalidRec   = errors.New("invalid record")
-	ErrBackend      = errors.New("backend error")
+	ErrZoneExists       = errors.New("zone already exists")
+	ErrZoneNotFound     = errors.New("zone not found")
+	ErrInvalidZone      = errors.New("invalid zone")
+	ErrInvalidRec       = errors.New("invalid record")
+	ErrTemplateExists   = errors.New("template already exists")
+	ErrTemplateNotFound = errors.New("template not found")
+	ErrInvalidTemplate  = errors.New("invalid template")
+	ErrBackend          = errors.New("backend error")
 )
 
 type ZoneRepository interface {

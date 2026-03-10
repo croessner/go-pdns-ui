@@ -14,13 +14,15 @@
         </div>
       </div>
       <div class="flex flex-wrap gap-2">
-        {{if .IsAdmin}}
         <form
           hx-post="/zones/{{pathEscape .SelectedZone.Name}}/dnssec"
           hx-target="#zone-editor"
           hx-swap="outerHTML"
         >
           <input type="hidden" name="enabled" value="{{if .SelectedZone.DNSSECEnabled}}false{{else}}true{{end}}">
+          <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+          <input type="hidden" name="q" value="{{.ZoneQuery}}">
+          <input type="hidden" name="page" value="{{.ZonePage}}">
           <button type="submit" class="btn btn-sm btn-outline">
             {{if .SelectedZone.DNSSECEnabled}}
             {{index .L "disable_dnssec"}}
@@ -34,6 +36,9 @@
           hx-target="#zone-editor"
           hx-swap="outerHTML"
         >
+          <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+          <input type="hidden" name="q" value="{{.ZoneQuery}}">
+          <input type="hidden" name="page" value="{{.ZonePage}}">
           <button type="submit" class="btn btn-sm btn-primary">{{index .L "apply_zone"}}</button>
         </form>
         <form
@@ -41,9 +46,11 @@
           hx-target="#zone-editor"
           hx-swap="outerHTML"
         >
+          <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+          <input type="hidden" name="q" value="{{.ZoneQuery}}">
+          <input type="hidden" name="page" value="{{.ZonePage}}">
           <button type="submit" class="btn btn-sm btn-ghost">{{index .L "reset_draft"}}</button>
         </form>
-        {{end}}
       </div>
     </div>
 
@@ -68,7 +75,20 @@
               <td>{{.TTL}}</td>
               <td class="max-w-[350px] truncate" title="{{.Content}}">{{.Content}}</td>
               <td class="text-right">
-                {{if $.IsAdmin}}
+                <form
+                  hx-get="/zones/{{pathEscape $.SelectedZone.Name}}/editor"
+                  hx-target="#zone-editor"
+                  hx-swap="outerHTML"
+                  class="inline"
+                  data-preserve-scroll="1"
+                >
+                  <input type="hidden" name="template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
+                  <input type="hidden" name="q" value="{{$.ZoneQuery}}">
+                  <input type="hidden" name="page" value="{{$.ZonePage}}">
+                  <input type="hidden" name="edit_name" value="{{.Name}}">
+                  <input type="hidden" name="edit_type" value="{{.Type}}">
+                  <button type="submit" class="btn btn-ghost btn-xs">{{index $.L "edit_record"}}</button>
+                </form>
                 <form
                   hx-post="/zones/{{pathEscape $.SelectedZone.Name}}/records/delete"
                   hx-target="#zone-editor"
@@ -77,6 +97,9 @@
                 >
                   <input type="hidden" name="name" value="{{.Name}}">
                   <input type="hidden" name="type" value="{{.Type}}">
+                  <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
+                  <input type="hidden" name="q" value="{{$.ZoneQuery}}">
+                  <input type="hidden" name="page" value="{{$.ZonePage}}">
                   <button
                     type="submit"
                     class="btn btn-error btn-xs"
@@ -85,7 +108,6 @@
                     {{index $.L "delete_record"}}
                   </button>
                 </form>
-                {{end}}
               </td>
             </tr>
             {{else}}
@@ -98,44 +120,125 @@
       </div>
     </div>
 
-    {{if .IsAdmin}}
     <form
       hx-post="/zones/{{pathEscape .SelectedZone.Name}}/records"
       hx-target="#zone-editor"
       hx-swap="outerHTML"
       class="grid gap-3 md:grid-cols-6"
+      data-record-form="zone"
+      data-auto-open-record-dialog="{{if and .ZoneRecordForm.Editing (eq .ZoneRecordForm.Type "TXT")}}TXT{{else if and .ZoneRecordForm.Editing (eq .ZoneRecordForm.Type "SRV")}}SRV{{end}}"
     >
+      <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+      <input type="hidden" name="q" value="{{.ZoneQuery}}">
+      <input type="hidden" name="page" value="{{.ZonePage}}">
+      <input type="hidden" name="old_name" value="{{.ZoneRecordForm.OldName}}">
+      <input type="hidden" name="old_type" value="{{.ZoneRecordForm.OldType}}">
       <label class="floating-label md:col-span-2">
         <span>{{index .L "record_name"}}</span>
-        <input type="text" name="name" class="input input-bordered w-full" placeholder="@ / www / 10" required>
+        <input type="text" name="name" value="{{.ZoneRecordForm.Name}}" class="input input-bordered w-full" placeholder="@ / www / 10" required>
       </label>
       <label class="floating-label">
         <span>{{index .L "record_type"}}</span>
         <select name="type" class="select select-bordered w-full">
-          <option>A</option>
-          <option>AAAA</option>
-          <option>CNAME</option>
-          <option>MX</option>
-          <option>NS</option>
-          <option>TXT</option>
-          <option>SRV</option>
-          <option>PTR</option>
-          <option>SOA</option>
-          <option>CAA</option>
-          <option>TLSA</option>
+          <option {{if eq .ZoneRecordForm.Type "A"}}selected{{end}}>A</option>
+          <option {{if eq .ZoneRecordForm.Type "AAAA"}}selected{{end}}>AAAA</option>
+          <option {{if eq .ZoneRecordForm.Type "CNAME"}}selected{{end}}>CNAME</option>
+          <option {{if eq .ZoneRecordForm.Type "MX"}}selected{{end}}>MX</option>
+          <option {{if eq .ZoneRecordForm.Type "NS"}}selected{{end}}>NS</option>
+          <option {{if eq .ZoneRecordForm.Type "TXT"}}selected{{end}}>TXT</option>
+          <option {{if eq .ZoneRecordForm.Type "SRV"}}selected{{end}}>SRV</option>
+          <option {{if eq .ZoneRecordForm.Type "PTR"}}selected{{end}}>PTR</option>
+          <option {{if eq .ZoneRecordForm.Type "SOA"}}selected{{end}}>SOA</option>
+          <option {{if eq .ZoneRecordForm.Type "CAA"}}selected{{end}}>CAA</option>
+          <option {{if eq .ZoneRecordForm.Type "TLSA"}}selected{{end}}>TLSA</option>
         </select>
       </label>
       <label class="floating-label">
         <span>{{index .L "ttl"}}</span>
-        <input type="number" min="60" step="60" name="ttl" value="3600" class="input input-bordered w-full" required>
+        <input type="number" min="60" step="60" name="ttl" value="{{.ZoneRecordForm.TTL}}" class="input input-bordered w-full" required>
       </label>
       <label class="floating-label md:col-span-2">
         <span>{{index .L "content"}}</span>
-        <input type="text" name="content" class="input input-bordered w-full" required>
+        <div class="flex flex-col gap-2 sm:flex-row">
+          <input type="text" name="content" value="{{.ZoneRecordForm.Content}}" class="input input-bordered w-full" required>
+          <div class="flex gap-2 sm:shrink-0">
+            <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="TXT">{{index .L "txt_helper"}}</button>
+            <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="SRV">{{index .L "srv_helper"}}</button>
+          </div>
+        </div>
       </label>
-      <button type="submit" class="btn btn-primary md:col-span-6">{{index .L "save_record"}}</button>
+      <div class="md:col-span-6 flex flex-wrap gap-2">
+        <button type="submit" class="btn btn-primary">
+          {{if .ZoneRecordForm.Editing}}
+          {{index .L "update_record"}}
+          {{else}}
+          {{index .L "save_record"}}
+          {{end}}
+        </button>
+        {{if .ZoneRecordForm.Editing}}
+        <button
+          type="button"
+          class="btn btn-ghost"
+          hx-get="/zones/{{pathEscape .SelectedZone.Name}}/editor{{if .SelectedTemplate}}?template={{pathEscape .SelectedTemplate.Name}}&{{else}}?{{end}}q={{pathEscape .ZoneQuery}}&page={{.ZonePage}}"
+          hx-target="#zone-editor"
+          hx-swap="outerHTML"
+        >
+          {{index .L "cancel_edit"}}
+        </button>
+        {{end}}
+      </div>
     </form>
-    {{end}}
+
+    <dialog class="modal" data-record-dialog="TXT">
+      <div class="modal-box">
+        <h3 class="font-semibold text-lg">{{index .L "txt_dialog_title"}}</h3>
+        <p class="text-sm opacity-70 mt-1">{{index .L "txt_dialog_hint"}}</p>
+        <textarea class="textarea textarea-bordered w-full mt-4 min-h-32" data-txt-dialog-input placeholder="{{index .L "txt_dialog_placeholder"}}"></textarea>
+        <div class="modal-action">
+          <button type="button" class="btn btn-primary" data-txt-dialog-apply>{{index .L "apply"}}</button>
+          <form method="dialog">
+            <button class="btn">{{index .L "cancel"}}</button>
+          </form>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button>{{index .L "close"}}</button>
+      </form>
+    </dialog>
+
+    <dialog class="modal" data-record-dialog="SRV">
+      <div class="modal-box">
+        <h3 class="font-semibold text-lg">{{index .L "srv_dialog_title"}}</h3>
+        <p class="text-sm opacity-70 mt-1">{{index .L "srv_dialog_hint"}}</p>
+        <div class="grid gap-3 sm:grid-cols-3 mt-4">
+          <label class="floating-label">
+            <span>{{index .L "srv_priority"}}</span>
+            <input type="number" min="0" max="65535" value="10" class="input input-bordered w-full" data-srv-priority>
+          </label>
+          <label class="floating-label">
+            <span>{{index .L "srv_weight"}}</span>
+            <input type="number" min="0" max="65535" value="0" class="input input-bordered w-full" data-srv-weight>
+          </label>
+          <label class="floating-label">
+            <span>{{index .L "srv_port"}}</span>
+            <input type="number" min="0" max="65535" value="5060" class="input input-bordered w-full" data-srv-port>
+          </label>
+          <label class="floating-label sm:col-span-3">
+            <span>{{index .L "srv_target"}}</span>
+            <input type="text" class="input input-bordered w-full" data-srv-target placeholder="sip.example.org.">
+          </label>
+        </div>
+        <div class="modal-action">
+          <button type="button" class="btn btn-primary" data-srv-dialog-apply>{{index .L "apply"}}</button>
+          <form method="dialog">
+            <button class="btn">{{index .L "cancel"}}</button>
+          </form>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button>{{index .L "close"}}</button>
+      </form>
+    </dialog>
   </div>
 </section>
 {{else}}

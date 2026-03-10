@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ var (
 type Service interface {
 	LoginWithPassword(username, password string) (Session, error)
 	OIDCEnabled() bool
+	ShowDefaultCredentialsHint() bool
 	BeginOIDCAuth() (string, error)
 	CompleteOIDCAuth(ctx context.Context, state, code string) (Session, error)
 	GetSession(sessionID string) (Session, bool)
@@ -34,6 +36,8 @@ type InMemoryService struct {
 	username string
 	password string
 	oidc     *oidcProvider
+	// showDefaultCredentialsHint indicates that local auth uses the startup fallback defaults.
+	showDefaultCredentialsHint bool
 
 	sessions map[string]Session
 	flows    map[string]oidcFlow
@@ -49,17 +53,28 @@ func NewInMemoryService(ctx context.Context, username, password string, oidcConf
 		username: strings.TrimSpace(username),
 		password: password,
 		oidc:     oidcProvider,
-		sessions: make(map[string]Session),
-		flows:    make(map[string]oidcFlow),
+		// Constructor with explicit credentials should not advertise defaults.
+		showDefaultCredentialsHint: false,
+		sessions:                   make(map[string]Session),
+		flows:                      make(map[string]oidcFlow),
 	}, nil
 }
 
 func NewInMemoryServiceFromEnv(ctx context.Context) (*InMemoryService, error) {
+	_, usernameIsSet := os.LookupEnv("GO_PDNS_UI_USERNAME")
+	_, passwordIsSet := os.LookupEnv("GO_PDNS_UI_PASSWORD")
 	username := getenvOrDefault("GO_PDNS_UI_USERNAME", "admin")
 	password := getenvOrDefault("GO_PDNS_UI_PASSWORD", "admin")
 	oidcConfig := LoadOIDCConfigFromEnv()
 
-	return NewInMemoryService(ctx, username, password, oidcConfig)
+	service, err := NewInMemoryService(ctx, username, password, oidcConfig)
+	if err != nil {
+		return nil, err
+	}
+	// Only display the hint if both credentials come from fallback defaults.
+	service.showDefaultCredentialsHint = !usernameIsSet && !passwordIsSet
+
+	return service, nil
 }
 
 func (s *InMemoryService) LoginWithPassword(username, password string) (Session, error) {
@@ -79,6 +94,10 @@ func (s *InMemoryService) LoginWithPassword(username, password string) (Session,
 
 func (s *InMemoryService) OIDCEnabled() bool {
 	return s.oidc != nil
+}
+
+func (s *InMemoryService) ShowDefaultCredentialsHint() bool {
+	return s.showDefaultCredentialsHint
 }
 
 func (s *InMemoryService) BeginOIDCAuth() (string, error) {
