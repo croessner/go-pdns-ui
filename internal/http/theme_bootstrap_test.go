@@ -65,6 +65,8 @@ func TestDashboardPageThemeBootstrapRegression(t *testing.T) {
 		`<body class="min-h-screen bg-base-200 text-base-content">`,
 		`const next = current === "dark" ? "light" : "dark";`,
 		`applyTheme(next);`,
+		`id="zone-search-input"`,
+		`hx-sync="this:replace"`,
 	)
 	assertThemeBootstrapBeforeStylesheet(t, body)
 }
