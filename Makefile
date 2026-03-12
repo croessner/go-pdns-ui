@@ -6,6 +6,11 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS ?= -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)
+SBOM_OUTPUT_DIR ?= sbom
+SBOM_OUTPUT_PREFIX ?= go-pdns-ui
+SBOM_DOCKER_IMAGE ?= ghcr.io/croessner/go-pdns-ui:latest
+SBOM_DOCKER_PULL ?= true
+SBOM_SYFT_VERSION ?= v1.16.0
 
 ifeq ($(firstword $(MAKECMDGOALS)),docker-run)
 DOCKER_RUN_CLI_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
@@ -13,7 +18,7 @@ DOCKER_RUN_CLI_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 	@:
 endif
 
-.PHONY: run test build tidy vendor fmt docker-build docker-run compose-up compose-down compose-logs
+.PHONY: run test build tidy vendor fmt docker-build docker-run compose-up compose-down compose-logs sbom
 
 run:
 	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; $(GO) run ./cmd/go-pdns-ui
@@ -52,3 +57,12 @@ compose-down:
 
 compose-logs:
 	docker compose logs -f
+
+sbom:
+	./scripts/sbom.sh \
+		--output-dir $(SBOM_OUTPUT_DIR) \
+		--output-prefix $(SBOM_OUTPUT_PREFIX) \
+		--source-dir . \
+		--docker-image $(SBOM_DOCKER_IMAGE) \
+		--docker-pull $(SBOM_DOCKER_PULL) \
+		--syft-version $(SBOM_SYFT_VERSION)

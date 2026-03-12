@@ -41,6 +41,7 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/go-pdns-ui:dev
             ghcr.io/${{ github.repository_owner }}/go-pdns-ui:dev-${{ steps.meta.outputs.commit }}

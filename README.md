@@ -164,6 +164,7 @@ make docker-run
 make compose-up
 make compose-down
 make compose-logs
+make sbom
 ```
 
 ## Docker
@@ -178,6 +179,25 @@ Run with env file:
 
 ```bash
 docker run --rm -p 8080:8080 --env-file .env go-pdns-ui:local
+```
+
+## SBOM
+
+Generate SBOMs for source and Docker image:
+
+```bash
+make sbom
+```
+
+Output files are written to `sbom/` as pretty-printed SPDX JSON:
+
+- `go-pdns-ui-source.spdx.json`
+- `go-pdns-ui-image.spdx.json`
+
+Customize via Make variables, for example:
+
+```bash
+make sbom SBOM_DOCKER_IMAGE=go-pdns-ui:local SBOM_DOCKER_PULL=false
 ```
 
 ## Docker Compose (Full Stack)
