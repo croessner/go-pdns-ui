@@ -716,6 +716,22 @@
     bindRecordDialogs(document);
     let preservedScrollY = null;
     let pendingSearchCaret = null;
+    let searchInputInteractionVersion = 0;
+
+    document.body.addEventListener("input", (event) => {
+      const target = event.target;
+      if (target && target.id === "zone-search-input") {
+        searchInputInteractionVersion += 1;
+      }
+    }, true);
+
+    document.addEventListener("selectionchange", () => {
+      const activeElement = document.activeElement;
+      if (activeElement && activeElement.id === "zone-search-input") {
+        searchInputInteractionVersion += 1;
+      }
+    });
+
     document.body.addEventListener("htmx:beforeRequest", (event) => {
       const detail = event.detail || {};
       const trigger = detail.requestConfig ? detail.requestConfig.elt : null;
@@ -727,7 +743,13 @@
       if (trigger.id === "zone-search-input") {
         const start = typeof trigger.selectionStart === "number" ? trigger.selectionStart : null;
         const end = typeof trigger.selectionEnd === "number" ? trigger.selectionEnd : start;
-        pendingSearchCaret = { start, end };
+        pendingSearchCaret = {
+          start,
+          end,
+          value: trigger.value,
+          interactionVersion: searchInputInteractionVersion,
+          hadFocus: document.activeElement === trigger,
+        };
       } else {
         pendingSearchCaret = null;
       }
@@ -752,6 +774,12 @@
         requestAnimationFrame(() => {
           const searchInput = document.getElementById("zone-search-input");
           if (!searchInput) return;
+          if (!caret.hadFocus) return;
+          if (searchInput.value !== caret.value) return;
+          if (searchInputInteractionVersion !== caret.interactionVersion) return;
+          const activeElement = document.activeElement;
+          const canRestoreFocus = !activeElement || activeElement === document.body || activeElement === searchInput;
+          if (!canRestoreFocus) return;
           searchInput.focus({ preventScroll: true });
           if (caret.start !== null && typeof searchInput.setSelectionRange === "function") {
             const valueLength = searchInput.value.length;
