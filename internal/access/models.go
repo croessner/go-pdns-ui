@@ -13,6 +13,7 @@ var (
 	ErrCompanyExists     = errors.New("company already exists")
 	ErrCompanyNotFound   = errors.New("company not found")
 	ErrPrincipalNotFound = errors.New("principal not found")
+	ErrZoneNotFound      = errors.New("zone not found")
 )
 
 type Company struct {

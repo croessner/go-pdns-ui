@@ -113,6 +113,25 @@ func TestFilterZones(t *testing.T) {
 	}
 }
 
+func TestZoneExists(t *testing.T) {
+	t.Parallel()
+
+	zones := []domain.Zone{
+		{Name: "alpha-test.example.org"},
+		{Name: "beta-test.example.org"},
+	}
+
+	if !zoneExists(zones, "alpha-test.example.org") {
+		t.Fatalf("expected exact zone match")
+	}
+	if !zoneExists(zones, "ALPHA-TEST.EXAMPLE.ORG") {
+		t.Fatalf("expected case-insensitive zone match")
+	}
+	if zoneExists(zones, "foobar.org") {
+		t.Fatalf("expected unknown zone to not match")
+	}
+}
+
 func TestPaginateZones(t *testing.T) {
 	t.Parallel()
 

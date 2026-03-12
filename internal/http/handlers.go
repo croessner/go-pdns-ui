@@ -438,6 +438,11 @@ func (h *Handler) deleteZone(w http.ResponseWriter, r *http.Request, session aut
 		h.respondDomainError(w, r, err)
 		return
 	}
+	if h.access.Enabled() {
+		if err := h.access.UnassignZone(r.Context(), zoneName); err != nil {
+			h.logger.Warn("zone_assignment_cleanup_failed", "zone_name", zoneName, "error", err)
+		}
+	}
 
 	h.logAction("zone_deleted", session, "zone_name", zoneName)
 
@@ -1045,6 +1050,15 @@ func (h *Handler) updateZoneAssignment(w http.ResponseWriter, r *http.Request, s
 
 	switch action {
 	case "assign":
+		allZones, err := h.zones.ListZones(r.Context())
+		if err != nil {
+			h.respondDomainError(w, r, err)
+			return
+		}
+		if !zoneExists(allZones, zoneName) {
+			h.respondAccessError(w, r, access.ErrZoneNotFound)
+			return
+		}
 		if err := h.access.AssignZoneToCompany(r.Context(), zoneName, companyID); err != nil {
 			h.respondAccessError(w, r, err)
 			return
@@ -1188,6 +1202,22 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 			if err != nil {
 				return viewData{}, err
 			}
+			cleanedAssignments := make([]access.ZoneAssignment, 0, len(zoneAssignments))
+			for _, assignment := range zoneAssignments {
+				if zoneExists(allZones, assignment.ZoneName) {
+					cleanedAssignments = append(cleanedAssignments, assignment)
+					continue
+				}
+
+				if err := h.access.UnassignZone(ctx, assignment.ZoneName); err != nil {
+					h.logger.Warn("stale_zone_assignment_cleanup_failed", "zone_name", assignment.ZoneName, "error", err)
+					cleanedAssignments = append(cleanedAssignments, assignment)
+					continue
+				}
+
+				h.logger.Info("stale_zone_assignment_removed", "zone_name", assignment.ZoneName)
+			}
+			zoneAssignments = cleanedAssignments
 
 			for _, assignment := range zoneAssignments {
 				zoneCompanyIDByZone[assignment.ZoneName] = assignment.CompanyID
@@ -1283,6 +1313,21 @@ func filterZones(zones []domain.Zone, query string) []domain.Zone {
 	}
 
 	return result
+}
+
+func zoneExists(zones []domain.Zone, name string) bool {
+	needle := strings.TrimSpace(name)
+	if needle == "" {
+		return false
+	}
+
+	for _, zone := range zones {
+		if strings.EqualFold(strings.TrimSpace(zone.Name), needle) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func paginateZones(zones []domain.Zone, page, pageSize int) ([]domain.Zone, int, int) {
@@ -1829,7 +1874,7 @@ func (h *Handler) respondDomainError(w http.ResponseWriter, r *http.Request, err
 		status = http.StatusBadGateway
 	case errors.Is(err, access.ErrInvalidInput):
 		status = http.StatusBadRequest
-	case errors.Is(err, access.ErrCompanyNotFound), errors.Is(err, access.ErrPrincipalNotFound):
+	case errors.Is(err, access.ErrCompanyNotFound), errors.Is(err, access.ErrPrincipalNotFound), errors.Is(err, access.ErrZoneNotFound):
 		status = http.StatusNotFound
 	case errors.Is(err, access.ErrCompanyExists):
 		status = http.StatusConflict
@@ -1858,7 +1903,7 @@ func (h *Handler) respondAccessError(w http.ResponseWriter, r *http.Request, err
 	switch {
 	case errors.Is(err, access.ErrInvalidInput):
 		status = http.StatusBadRequest
-	case errors.Is(err, access.ErrCompanyNotFound), errors.Is(err, access.ErrPrincipalNotFound):
+	case errors.Is(err, access.ErrCompanyNotFound), errors.Is(err, access.ErrPrincipalNotFound), errors.Is(err, access.ErrZoneNotFound):
 		status = http.StatusNotFound
 	case errors.Is(err, access.ErrCompanyExists):
 		status = http.StatusConflict
