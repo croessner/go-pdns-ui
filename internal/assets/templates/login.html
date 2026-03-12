@@ -111,8 +111,6 @@
             </label>
             <button type="submit" class="btn btn-primary w-full">{{index .L "sign_in"}}</button>
           </form>
-          {{else}}
-          <div class="alert alert-info text-sm">{{index .L "oidc_only_login"}}</div>
           {{end}}
 
           {{if and .OIDCEnabled .PasswordLoginEnabled}}

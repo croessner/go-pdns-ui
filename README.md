@@ -248,8 +248,7 @@ Open:
 
 Demo logins:
 
-- Local app login: `admin` / `admin`
-- OIDC login via Nauthilus:
+- OIDC-only login via Nauthilus:
   - `admin` / `admin` (OIDC group `admin` -> app role `admin`)
   - `user` / `user` (OIDC group `user` -> app role `user`)
 

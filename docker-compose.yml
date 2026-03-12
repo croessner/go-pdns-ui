@@ -100,7 +100,7 @@ services:
       GO_PDNS_UI_LOG_LEVEL: INFO
       GO_PDNS_UI_USERNAME: admin
       GO_PDNS_UI_PASSWORD: admin
-      GO_PDNS_UI_AUTH_OIDC_ONLY: "false"
+      GO_PDNS_UI_AUTH_OIDC_ONLY: "true"
       GO_PDNS_UI_AUTHZ_MODE: company
       GO_PDNS_UI_DATABASE_URL: postgres://pdns:pdns@db:5432/pdns?sslmode=disable
       GO_PDNS_UI_DB_MAX_OPEN_CONNS: 10

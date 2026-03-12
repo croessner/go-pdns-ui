@@ -92,8 +92,8 @@ func TestLoginPageHidesPasswordFormWhenOIDCOnly(t *testing.T) {
 	if strings.Contains(body, `action="/login/password"`) {
 		t.Fatalf("expected password login form to be hidden in oidc-only mode")
 	}
-	if !strings.Contains(body, "Local password login is disabled.") {
-		t.Fatalf("expected oidc-only hint in response body")
+	if strings.Contains(body, "Local password login is disabled.") {
+		t.Fatalf("expected no oidc-only hint in response body")
 	}
 }
 
@@ -110,8 +110,8 @@ func TestPasswordLoginRouteBlockedWhenOIDCOnly(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected status %d, got %d", http.StatusForbidden, rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "Local password login is disabled.") {
-		t.Fatalf("expected oidc-only login error in response")
+	if strings.Contains(rec.Body.String(), "Local password login is disabled.") {
+		t.Fatalf("expected no oidc-only login hint in response")
 	}
 }
 

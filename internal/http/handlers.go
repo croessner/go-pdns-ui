@@ -209,7 +209,6 @@ func (h *Handler) loginPassword(w http.ResponseWriter, r *http.Request) {
 			ShowLoginHint:        false,
 			PasswordLoginEnabled: false,
 			OIDCEnabled:          h.auth.OIDCEnabled(),
-			Error:                h.i18n.Catalog(lang)["oidc_only_login"],
 		}, http.StatusForbidden)
 		return
 	}
@@ -1172,6 +1171,7 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 	var zoneAssignments []access.ZoneAssignment
 	zoneCompanyIDByZone := make(map[string]string)
 	zoneCompanyNameByZone := make(map[string]string)
+	manageZones := filteredZones
 
 	if session.User.Role == auth.RoleAdmin {
 		templates, err = h.zoneTemplates.ListTemplates(ctx)
@@ -1223,6 +1223,7 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 				zoneCompanyIDByZone[assignment.ZoneName] = assignment.CompanyID
 				zoneCompanyNameByZone[assignment.ZoneName] = assignment.CompanyName
 			}
+			manageZones = filterAssignableZones(filteredZones, zoneCompanyIDByZone)
 		}
 	}
 
@@ -1232,7 +1233,7 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 		Lang:               lang,
 		Supported:          h.i18n.Supported(),
 		Zones:              pagedZones,
-		ManageZones:        filteredZones,
+		ManageZones:        manageZones,
 		ZoneQuery:          zoneQuery,
 		ZonePage:           resolvedPage,
 		ZoneTotal:          len(filteredZones),
@@ -1328,6 +1329,27 @@ func zoneExists(zones []domain.Zone, name string) bool {
 	}
 
 	return false
+}
+
+func filterAssignableZones(zones []domain.Zone, assignedByZone map[string]string) []domain.Zone {
+	if len(zones) == 0 {
+		return nil
+	}
+	if len(assignedByZone) == 0 {
+		result := make([]domain.Zone, len(zones))
+		copy(result, zones)
+		return result
+	}
+
+	result := make([]domain.Zone, 0, len(zones))
+	for _, zone := range zones {
+		if _, assigned := assignedByZone[zone.Name]; assigned {
+			continue
+		}
+		result = append(result, zone)
+	}
+
+	return result
 }
 
 func paginateZones(zones []domain.Zone, page, pageSize int) ([]domain.Zone, int, int) {

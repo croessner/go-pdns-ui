@@ -137,26 +137,32 @@
           <input type="hidden" name="tab" value="access">
           <label class="floating-label">
             <span>{{index .L "domain_name"}}</span>
-            <select name="zone_name" class="select select-bordered w-full min-h-12 leading-tight" required>
-              <option value="">{{index .L "select_zone"}}</option>
+            <select name="zone_name" class="select select-bordered w-full min-h-12 leading-tight" {{if eq (len .ManageZones) 0}}disabled{{end}} required>
+              <option value="">
+                {{if eq (len .ManageZones) 0}}
+                {{index .L "no_assignable_zones"}}
+                {{else}}
+                {{index .L "select_zone"}}
+                {{end}}
+              </option>
               {{range .ManageZones}}
               <option value="{{.Name}}">{{.Name}}</option>
               {{end}}
             </select>
           </label>
+          {{if eq (len .ManageZones) 0}}
+          <p class="text-xs opacity-70">{{index .L "no_assignable_zones"}}</p>
+          {{end}}
           <label class="floating-label">
             <span>{{index .L "company"}}</span>
-            <select name="company_id" class="select select-bordered w-full min-h-12 leading-tight">
+            <select name="company_id" class="select select-bordered w-full min-h-12 leading-tight" {{if eq (len .ManageZones) 0}}disabled{{end}}>
               <option value="">{{index .L "select_company"}}</option>
               {{range .Companies}}
               <option value="{{.ID}}">{{.Name}}</option>
               {{end}}
             </select>
           </label>
-          <div class="flex gap-2">
-            <button type="submit" name="action" value="assign" class="btn btn-primary flex-1">{{index .L "assign_zone"}}</button>
-            <button type="submit" name="action" value="clear" class="btn btn-outline flex-1">{{index .L "clear_zone_assignment"}}</button>
-          </div>
+          <button type="submit" name="action" value="assign" class="btn btn-primary" {{if eq (len .ManageZones) 0}}disabled{{end}}>{{index .L "assign_zone"}}</button>
         </form>
       </div>
 
@@ -222,6 +228,7 @@
               <tr>
                 <th>{{index .L "domain_name"}}</th>
                 <th>{{index .L "company"}}</th>
+                <th class="text-right">{{index .L "actions"}}</th>
               </tr>
             </thead>
             <tbody>
@@ -229,10 +236,21 @@
               <tr>
                 <td>{{.ZoneName}}</td>
                 <td>{{.CompanyName}}</td>
+                <td class="text-right">
+                  <form hx-post="/access/zones" hx-target="#workspace" hx-swap="outerHTML" class="inline">
+                    <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
+                    <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
+                    <input type="hidden" name="q" value="{{$.ZoneQuery}}">
+                    <input type="hidden" name="page" value="{{$.ZonePage}}">
+                    <input type="hidden" name="tab" value="access">
+                    <input type="hidden" name="zone_name" value="{{.ZoneName}}">
+                    <button type="submit" name="action" value="clear" class="btn btn-outline btn-xs">{{index $.L "clear_zone_assignment"}}</button>
+                  </form>
+                </td>
               </tr>
               {{else}}
               <tr>
-                <td colspan="2" class="text-center py-4 opacity-70">{{index .L "no_zone_assignments"}}</td>
+                <td colspan="3" class="text-center py-4 opacity-70">{{index .L "no_zone_assignments"}}</td>
               </tr>
               {{end}}
             </tbody>

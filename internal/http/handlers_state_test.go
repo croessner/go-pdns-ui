@@ -132,6 +132,27 @@ func TestZoneExists(t *testing.T) {
 	}
 }
 
+func TestFilterAssignableZones(t *testing.T) {
+	t.Parallel()
+
+	zones := []domain.Zone{
+		{Name: "alpha-test.example.org"},
+		{Name: "beta-test.example.org"},
+		{Name: "gamma-test.example.org"},
+	}
+	assigned := map[string]string{
+		"beta-test.example.org": "company-1",
+	}
+
+	assignable := filterAssignableZones(zones, assigned)
+	if len(assignable) != 2 {
+		t.Fatalf("expected 2 assignable zones, got %d", len(assignable))
+	}
+	if assignable[0].Name != "alpha-test.example.org" || assignable[1].Name != "gamma-test.example.org" {
+		t.Fatalf("unexpected assignable zones: %+v", assignable)
+	}
+}
+
 func TestPaginateZones(t *testing.T) {
 	t.Parallel()
 
