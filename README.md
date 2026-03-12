@@ -263,3 +263,8 @@ cat backup.sql | docker compose exec -T db psql -U pdns -d pdns
 ```
 
 - Before major version upgrades of Postgres/PowerDNS, create a backup and test restore in a throwaway stack.
+
+## License
+
+Licensed under the Apache License, Version 2.0.
+See [LICENSE](LICENSE) for details.
