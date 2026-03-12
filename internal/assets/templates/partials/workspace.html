@@ -104,7 +104,6 @@
         hx-get="/"
         hx-target="#workspace"
         hx-swap="outerHTML"
-        hx-trigger="submit"
       >
         <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
         <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
@@ -112,25 +111,21 @@
         <input type="hidden" name="tab" value="{{.ActiveTab}}">
         <label class="floating-label">
           <span>{{index .L "zone_search"}}</span>
-          <input
-            id="zone-search-input"
-            type="search"
-            name="q"
-            value="{{.ZoneQuery}}"
-            placeholder="{{index .L "zone_search_placeholder"}}"
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="off"
-            spellcheck="false"
-            class="input input-bordered w-full"
-            hx-preserve
-            hx-get="/"
-            hx-trigger="input changed delay:250ms, search"
-            hx-target="#workspace"
-            hx-swap="outerHTML"
-            hx-include="#zone-search-form"
-            hx-sync="this:replace"
-          >
+          <div class="join w-full">
+            <input
+              id="zone-search-input"
+              type="search"
+              name="q"
+              value="{{.ZoneQuery}}"
+              placeholder="{{index .L "zone_search_placeholder"}}"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+              class="input input-bordered join-item w-full"
+            >
+            <button type="submit" class="btn btn-primary join-item">{{index .L "search"}}</button>
+          </div>
         </label>
       </form>
 

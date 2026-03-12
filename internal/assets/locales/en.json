@@ -20,6 +20,7 @@
   "domains_hint": "Forward and reverse zones with staged apply support.",
   "domain_name": "Domain / Zone name",
   "zone_search": "Search zones",
+  "search": "Search",
   "zone_search_placeholder": "Type to search ...",
   "zones_total": "Matching zones",
   "company": "Company",

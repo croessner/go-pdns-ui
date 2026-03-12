@@ -20,6 +20,7 @@
   "domains_hint": "Forward- und Reverse-Zonen mit Entwurf + Apply.",
   "domain_name": "Domain- / Zonenname",
   "zone_search": "Zonen suchen",
+  "search": "Suchen",
   "zone_search_placeholder": "Suchbegriff eingeben ...",
   "zones_total": "Gefundene Zonen",
   "company": "Firma",
