@@ -1,0 +1,52 @@
+name: Development Build
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  GOFLAGS: -mod=vendor
+
+jobs:
+  build-artifact:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version: 1.26.x
+
+      - name: Build and package artifact
+        run: |
+          COMMIT="${GITHUB_SHA:0:8}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          VERSION="0.0.0-dev-${COMMIT}"
+          ASSET="go-pdns-ui-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "dist/${ASSET}"
+
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -trimpath \
+              -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" \
+              -o "dist/${ASSET}/go-pdns-ui" \
+              ./cmd/go-pdns-ui
+
+          cp README.md "dist/${ASSET}/README.md"
+          (cd dist && tar czf "${ASSET}.tar.gz" "${ASSET}")
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: dev-artifact-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/go-pdns-ui-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz

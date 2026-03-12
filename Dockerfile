@@ -7,7 +7,11 @@ COPY . .
 ENV CGO_ENABLED=0
 ENV GOFLAGS=-mod=vendor
 
-RUN go build -trimpath -ldflags="-s -w" -o /out/go-pdns-ui ./cmd/go-pdns-ui
+ARG VERSION=dev
+ARG COMMIT=none
+ARG BUILD_DATE=unknown
+
+RUN go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" -o /out/go-pdns-ui ./cmd/go-pdns-ui
 
 FROM alpine:3.22
 

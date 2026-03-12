@@ -1,0 +1,77 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: go-pdns-ui-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pdns
+      POSTGRES_USER: pdns
+      POSTGRES_PASSWORD: pdns
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdns -d pdns"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  pdns:
+    image: powerdns/pdns-auth-49:latest
+    container_name: go-pdns-ui-pdns
+    restart: unless-stopped
+    volumes:
+      - ./deploy/pdns/pdns.conf:/etc/powerdns/pdns.conf:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    command:
+      - --daemon=no
+      - --api=yes
+      - --api-key=${PDNS_API_KEY:-change-me}
+      - --webserver=yes
+      - --webserver-address=0.0.0.0
+      - --webserver-allow-from=0.0.0.0/0,::/0
+      - --launch=gpgsql
+      - --gpgsql-host=db
+      - --gpgsql-port=5432
+      - --gpgsql-dbname=pdns
+      - --gpgsql-user=pdns
+      - --gpgsql-password=pdns
+      - --gpgsql-dnssec=yes
+      - --local-address=0.0.0.0
+    ports:
+      - "8053:53/tcp"
+      - "8053:53/udp"
+      - "8081:8081"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: go-pdns-ui-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      pdns:
+        condition: service_started
+    environment:
+      GO_PDNS_UI_LISTEN_ADDRESS: :8080
+      GO_PDNS_UI_LOG_LEVEL: INFO
+      GO_PDNS_UI_USERNAME: admin
+      GO_PDNS_UI_PASSWORD: admin
+      GO_PDNS_UI_AUTHZ_MODE: company
+      GO_PDNS_UI_DATABASE_URL: postgres://pdns:pdns@db:5432/pdns?sslmode=disable
+      GO_PDNS_UI_DB_MAX_OPEN_CONNS: 10
+      GO_PDNS_UI_DB_MAX_IDLE_CONNS: 5
+      GO_PDNS_UI_DB_CONN_MAX_LIFETIME_SECONDS: 300
+      GO_PDNS_API_URL: http://pdns:8081/api/v1
+      GO_PDNS_API_KEY: ${PDNS_API_KEY:-change-me}
+      GO_PDNS_SERVER_ID: localhost
+      GO_PDNS_HTTP_TIMEOUT_SECONDS: 10
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres_data:

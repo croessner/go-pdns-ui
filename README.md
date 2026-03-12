@@ -1,16 +1,18 @@
-# Go-PDNS UI (Prototype)
+# Go-PDNS UI
 
-Modern HTMX UI prototype for administering PowerDNS zones with draft/apply workflow.
+Modern HTMX UI for administering PowerDNS zones with draft/apply workflow.
 
-## Features in this prototype
+## Features
 
 - Login via hardcoded username/password (`admin`/`admin`)
 - Optional OpenID Connect login (Discovery + Authorization Code + PKCE)
-- Role mapping from OIDC `groups` claim (`admin` / `user`)
+- Role mapping from OIDC `groups` claim (`admin` / `user`, fallback `viewer`)
 - Domain list with create/delete
 - Zone editor with record add/delete
+- Company-based access control with persistent SQL storage
 - DNSSEC toggle on draft state
 - Draft vs apply behavior per zone
+- Structured helper dialogs for TXT, SRV, SOA, CAA and TLSA records
 - Reverse zone validation for IPv4 (`.in-addr.arpa`) and IPv6 (`.ip6.arpa`)
 - PowerDNS API abstraction with real backend integration
 - Dark mode toggle
@@ -18,20 +20,86 @@ Modern HTMX UI prototype for administering PowerDNS zones with draft/apply workf
 
 ## Configuration
 
+### Server
+
+- `GO_PDNS_UI_LISTEN_ADDRESS` (default: `:8080`)
+- `GO_PDNS_UI_LOG_LEVEL` (default: `INFO`; allowed: `DEBUG`, `INFO`, `WARN`, `ERROR`)
+- `GO_PDNS_UI_AUTH_OIDC_ONLY` (default: `false`; if `true`, local password login is disabled)
+- `GO_PDNS_UI_AVAILABLE_RECORD_TYPES` (optional; comma/space-separated RR types shown in editor type selectors and helper buttons)
+
+### Access Control / Persistence
+
+- `GO_PDNS_UI_AUTHZ_MODE` (default: `off`; values: `off`, `company`)
+- `GO_PDNS_UI_DATABASE_URL` (required for `GO_PDNS_UI_AUTHZ_MODE=company`; PostgreSQL DSN)
+- `GO_PDNS_UI_DB_MAX_OPEN_CONNS` (default: `10`)
+- `GO_PDNS_UI_DB_MAX_IDLE_CONNS` (default: `5`)
+- `GO_PDNS_UI_DB_CONN_MAX_LIFETIME_SECONDS` (default: `300`)
+- `GO_PDNS_UI_AUTHZ_OIDC_AUTO_CREATE` (default: `true`; when `false`, only pre-created OIDC users can sign in)
+
+Behavior in `company` mode:
+
+- Admins can create companies, assign users to companies, and assign zones to companies.
+- Users can view/edit zones assigned to one of their companies.
+- Viewers can only view assigned zones (no DNS edits/apply/reset actions).
+- Access control data is persisted in PostgreSQL.
+- User/subject principals are auto-synced on authenticated requests.
+- Admins can pre-create OIDC principals (without local passwords) in Access Control.
+- If `GO_PDNS_UI_AUTHZ_OIDC_AUTO_CREATE=false`, unknown OIDC users are rejected at login.
+
+Important role note:
+
+- Local password login currently authenticates as role `admin`.
+- Role `user` is typically reached through OIDC group mapping (`GO_PDNS_UI_OIDC_USER_GROUP`).
+- If OIDC groups do not match `admin`/`user`, role falls back to `viewer`.
+
+Bootstrap checklist for `company` mode:
+
+1. Start the app with `GO_PDNS_UI_AUTHZ_MODE=company` and a valid `GO_PDNS_UI_DATABASE_URL`.
+2. Create OIDC principals in Access Control (or let users sign in once to auto-create entries).
+   If `GO_PDNS_UI_AUTHZ_OIDC_AUTO_CREATE=false`, pre-creating principals is required.
+3. As admin, create one or more companies in the Access Control panel.
+4. Assign principals to companies.
+5. Assign zones to companies.
+6. Verify with a non-admin user that only assigned zones are visible.
+
+Logging:
+
+- Structured `slog` text output in `key=value` format.
+- Startup, HTTP requests, auth events, OIDC introspection, DNS/template operations and backend errors are logged.
+- Use `GO_PDNS_UI_LOG_LEVEL=DEBUG` for troubleshooting.
+
 ### Local login
 
 - `GO_PDNS_UI_USERNAME` (default: `admin`)
 - `GO_PDNS_UI_PASSWORD` (default: `admin`)
+- Password login is unavailable when `GO_PDNS_UI_AUTH_OIDC_ONLY=true`.
 
 ### OIDC (optional)
 
-- `GO_PDNS_UI_OIDC_DISCOVERY_URL`
+- `GO_PDNS_UI_OIDC_DISCOVERY_URL` (required; must be the full discovery endpoint `.../.well-known/openid-configuration`)
+- `GO_PDNS_UI_OIDC_ISSUER_URL` (optional override for issuer validation when discovery URL differs)
+- `GO_PDNS_UI_OIDC_INTROSPECTION_URL` (required for OIDC login; OAuth2 token introspection endpoint)
+- `GO_PDNS_UI_OIDC_INTROSPECTION_AUTH_METHOD` (default: `client_secret_basic`; allowed: `client_secret_basic`, `client_secret_post`)
+- `GO_PDNS_UI_OIDC_INSECURE_SKIP_VERIFY` (optional, default `false`; only for local/dev with self-signed certs)
 - `GO_PDNS_UI_OIDC_CLIENT_ID`
-- `GO_PDNS_UI_OIDC_CLIENT_SECRET` (optional for public clients)
+- `GO_PDNS_UI_OIDC_CLIENT_SECRET` (required for introspection auth)
 - `GO_PDNS_UI_OIDC_REDIRECT_URL` (for example `http://localhost:8080/auth/oidc/callback`)
 - `GO_PDNS_UI_OIDC_SCOPES` (default: `openid profile email groups`)
 - `GO_PDNS_UI_OIDC_ADMIN_GROUP` (default: `admin`)
 - `GO_PDNS_UI_OIDC_USER_GROUP` (default: `user`)
+
+OIDC login flow in this app:
+
+1. Authorization Code + PKCE login is completed.
+2. The returned `access_token` is sent to the configured introspection endpoint.
+3. Login is accepted only when introspection returns `active=true`.
+4. If the introspection response contains `client_id`, it must match `GO_PDNS_UI_OIDC_CLIENT_ID`.
+5. After successful introspection, the ID token is verified and groups are mapped to `admin`/`user`; unmatched groups fall back to `viewer`.
+
+Important discovery URL behavior:
+
+- The app does **not** append `/.well-known/openid-configuration` automatically.
+- `GO_PDNS_UI_OIDC_DISCOVERY_URL` must already contain that exact suffix.
 
 ### PowerDNS API
 
@@ -53,7 +121,22 @@ Adjust the values in `.env` for your environment.
 Notes:
 
 - If OIDC variables are unset, local username/password login stays active.
+- With `GO_PDNS_UI_AUTH_OIDC_ONLY=true`, OIDC configuration is mandatory.
+- If OIDC is enabled, introspection must be configured; inactive tokens are rejected.
+- If your IdP listens only on IPv4, prefer `127.0.0.1` over `localhost` in OIDC URLs.
 - If `GO_PDNS_API_URL` and `GO_PDNS_API_KEY` are unset, the app uses in-memory demo data.
+- In `company` mode, non-admin users without company+zone assignment will see an empty zone list.
+
+Example OIDC setup:
+
+```bash
+GO_PDNS_UI_OIDC_DISCOVERY_URL=https://idp.example.com/realms/demo/.well-known/openid-configuration
+GO_PDNS_UI_OIDC_INTROSPECTION_URL=https://idp.example.com/realms/demo/protocol/openid-connect/token/introspect
+GO_PDNS_UI_OIDC_INTROSPECTION_AUTH_METHOD=client_secret_basic
+GO_PDNS_UI_OIDC_CLIENT_ID=go-pdns-ui
+GO_PDNS_UI_OIDC_CLIENT_SECRET=change-me
+GO_PDNS_UI_OIDC_REDIRECT_URL=http://localhost:8080/auth/oidc/callback
+```
 
 ## Run
 
@@ -64,6 +147,12 @@ go run ./cmd/go-pdns-ui
 
 The UI is available at `http://localhost:8080`.
 
+Print version/build metadata:
+
+```bash
+./bin/go-pdns-ui --version
+```
+
 ## Make Targets
 
 ```bash
@@ -72,6 +161,9 @@ make test
 make build
 make docker-build
 make docker-run
+make compose-up
+make compose-down
+make compose-logs
 ```
 
 ## Docker
@@ -87,3 +179,45 @@ Run with env file:
 ```bash
 docker run --rm -p 8080:8080 --env-file .env go-pdns-ui:local
 ```
+
+## Docker Compose (Full Stack)
+
+The repository includes a full local stack in `docker-compose.yml`:
+
+- `app` (go-pdns-ui)
+- `pdns` (PowerDNS Authoritative API)
+- `db` (PostgreSQL for PowerDNS + go-pdns-ui access-control persistence)
+
+Start:
+
+```bash
+docker compose up -d --build
+```
+
+Open:
+
+- UI: `http://localhost:8080`
+- PowerDNS API endpoint: `http://localhost:8081/api/v1`
+
+Stop:
+
+```bash
+docker compose down
+```
+
+Persistence and upgrades:
+
+- Data is persisted in Docker volume `go-pdns-ui_postgres_data`.
+- Create backup:
+
+```bash
+docker compose exec -T db pg_dump -U pdns -d pdns > backup.sql
+```
+
+- Restore backup:
+
+```bash
+cat backup.sql | docker compose exec -T db psql -U pdns -d pdns
+```
+
+- Before major version upgrades of Postgres/PowerDNS, create a backup and test restore in a throwaway stack.

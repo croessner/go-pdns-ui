@@ -1,0 +1,67 @@
+name: Production Docker Build
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Login to GHCR
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract tag versions
+        id: extract_version
+        run: |
+          tag="${GITHUB_REF##*/}"
+          version="${tag#v}"
+          major="$(echo "$version" | cut -d'.' -f1)"
+          minor="$(echo "$version" | cut -d'.' -f2)"
+
+          if [ -z "$minor" ] || [ "$minor" = "$version" ]; then
+            minor="0"
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "major=${major}" >> "$GITHUB_OUTPUT"
+          echo "minor=${minor}" >> "$GITHUB_OUTPUT"
+          echo "commit=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          sbom: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/go-pdns-ui:latest
+            ghcr.io/${{ github.repository_owner }}/go-pdns-ui:${{ steps.extract_version.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/go-pdns-ui:${{ steps.extract_version.outputs.major }}
+            ghcr.io/${{ github.repository_owner }}/go-pdns-ui:${{ steps.extract_version.outputs.major }}.${{ steps.extract_version.outputs.minor }}
+          build-args: |
+            VERSION=${{ steps.extract_version.outputs.tag }}
+            COMMIT=${{ steps.extract_version.outputs.commit }}
+            BUILD_DATE=${{ steps.extract_version.outputs.build_date }}
+          outputs: type=image,name=target,annotation-index.org.opencontainers.image.description=PowerDNS administration UI

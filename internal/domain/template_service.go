@@ -79,6 +79,9 @@ func (s *InMemoryZoneTemplateService) CreateTemplate(_ context.Context, template
 	if err != nil {
 		return err
 	}
+	if len(normalized.Records) == 0 {
+		normalized.Records = defaultTemplateRecords(normalized.Kind)
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -129,6 +132,9 @@ func (s *InMemoryZoneTemplateService) SaveTemplateRecord(_ context.Context, temp
 
 	oldName = strings.TrimSpace(oldName)
 	oldType = strings.ToUpper(strings.TrimSpace(oldType))
+	if oldName != "" && oldType == "SOA" && (normalized.Name != oldName || normalized.Type != "SOA") {
+		return ErrInvalidRec
+	}
 
 	if oldName != "" && oldType != "" && (oldName != normalized.Name || oldType != normalized.Type) {
 		template.Records = slices.DeleteFunc(template.Records, func(entry Record) bool {
@@ -170,6 +176,9 @@ func (s *InMemoryZoneTemplateService) DeleteTemplateRecord(_ context.Context, te
 	recordName = strings.TrimSpace(recordName)
 	recordType = strings.ToUpper(strings.TrimSpace(recordType))
 	if recordName == "" || recordType == "" {
+		return ErrInvalidRec
+	}
+	if recordType == "SOA" {
 		return ErrInvalidRec
 	}
 
@@ -277,4 +286,47 @@ func sortRecords(records []Record) {
 		}
 		return strings.Compare(a.Name, b.Name)
 	})
+}
+
+func defaultTemplateRecords(kind ZoneKind) []Record {
+	switch kind {
+	case ZoneReverseV4, ZoneReverseV6:
+		return []Record{
+			{
+				Name:    "@",
+				Type:    "SOA",
+				TTL:     3600,
+				Content: ensureTrailingDot("ns1."+TemplateZoneNameToken) + " " + ensureTrailingDot("hostmaster."+TemplateZoneNameToken) + " 1 10800 3600 604800 3600",
+			},
+			{
+				Name:    "@",
+				Type:    "NS",
+				TTL:     3600,
+				Content: ensureTrailingDot("ns1." + TemplateZoneFQDNToken),
+			},
+			{
+				Name:    "1",
+				Type:    "PTR",
+				TTL:     3600,
+				Content: "host.example.org.",
+			},
+		}
+	case ZoneForward:
+		fallthrough
+	default:
+		return []Record{
+			{
+				Name:    "@",
+				Type:    "SOA",
+				TTL:     3600,
+				Content: ensureTrailingDot("ns1."+TemplateZoneNameToken) + " " + ensureTrailingDot("hostmaster."+TemplateZoneNameToken) + " 1 10800 3600 604800 3600",
+			},
+			{
+				Name:    "@",
+				Type:    "NS",
+				TTL:     3600,
+				Content: ensureTrailingDot("ns1." + TemplateZoneFQDNToken),
+			},
+		}
+	}
 }

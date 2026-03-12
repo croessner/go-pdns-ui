@@ -39,6 +39,81 @@
             </thead>
             <tbody>
               {{range .SelectedTemplate.Records}}
+              {{$isInlineEdit := and $.TemplateRecordForm.Editing (not $.TemplateDialogEditing) (eq $.TemplateRecordForm.OldName .Name) (eq $.TemplateRecordForm.OldType .Type)}}
+              {{if $isInlineEdit}}
+              <tr>
+                <td>
+                  <input
+                    type="text"
+                    name="name"
+                    form="template-inline-edit-form"
+                    value="{{$.TemplateRecordForm.Name}}"
+                    class="input input-bordered input-sm w-full font-mono text-xs"
+                    placeholder="@ / www / 10"
+                    required
+                  >
+                </td>
+                <td>
+                  <select name="type" form="template-inline-edit-form" class="select select-bordered select-sm w-full">
+                    {{if not (containsType $.AvailableRecordTypes $.TemplateRecordForm.Type)}}
+                    <option selected>{{$.TemplateRecordForm.Type}}</option>
+                    {{end}}
+                    {{range $.AvailableRecordTypes}}
+                    <option {{if eq $.TemplateRecordForm.Type .}}selected{{end}}>{{.}}</option>
+                    {{end}}
+                  </select>
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    min="60"
+                    step="60"
+                    name="ttl"
+                    form="template-inline-edit-form"
+                    value="{{$.TemplateRecordForm.TTL}}"
+                    class="input input-bordered input-sm w-full"
+                    required
+                  >
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    name="content"
+                    form="template-inline-edit-form"
+                    value="{{$.TemplateRecordForm.Content}}"
+                    class="input input-bordered input-sm w-full"
+                    required
+                  >
+                </td>
+                <td class="text-right">
+                  <form
+                    id="template-inline-edit-form"
+                    hx-post="/templates/{{pathEscape $.SelectedTemplate.Name}}/records"
+                    hx-target="#template-editor"
+                    hx-swap="outerHTML"
+                    data-preserve-scroll="1"
+                  >
+                    <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
+                    <input type="hidden" name="q" value="{{$.ZoneQuery}}">
+                    <input type="hidden" name="page" value="{{$.ZonePage}}">
+                    <input type="hidden" name="tab" value="templates">
+                    <input type="hidden" name="old_name" value="{{$.TemplateRecordForm.OldName}}">
+                    <input type="hidden" name="old_type" value="{{$.TemplateRecordForm.OldType}}">
+                  </form>
+                  <button type="submit" form="template-inline-edit-form" class="btn btn-secondary btn-xs">{{index $.L "save_record"}}</button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    data-preserve-scroll="1"
+                    hx-get="/templates/{{pathEscape $.SelectedTemplate.Name}}/editor{{if $.SelectedZone}}?zone={{pathEscape $.SelectedZone.Name}}&{{else}}?{{end}}q={{pathEscape $.ZoneQuery}}&page={{$.ZonePage}}&tab=templates"
+                    hx-target="#template-editor"
+                    hx-swap="outerHTML"
+                  >
+                    {{index $.L "cancel_edit"}}
+                  </button>
+                </td>
+              </tr>
+              {{else}}
               <tr>
                 <td class="font-mono text-xs">{{.Name}}</td>
                 <td><span class="badge badge-outline">{{.Type}}</span></td>
@@ -56,32 +131,37 @@
                     <input type="hidden" name="zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
                     <input type="hidden" name="q" value="{{$.ZoneQuery}}">
                     <input type="hidden" name="page" value="{{$.ZonePage}}">
+                    <input type="hidden" name="tab" value="templates">
                     <input type="hidden" name="edit_name" value="{{.Name}}">
                     <input type="hidden" name="edit_type" value="{{.Type}}">
                     <button type="submit" class="btn btn-ghost btn-xs">{{index $.L "edit_record"}}</button>
                   </form>
+                  {{if ne .Type "SOA"}}
                   <form
                     hx-post="/templates/{{pathEscape $.SelectedTemplate.Name}}/records/delete"
                     hx-target="#template-editor"
                     hx-swap="outerHTML"
                     class="inline"
+                    hx-confirm="{{index $.L "confirm_delete_record"}}"
                   >
                     <input type="hidden" name="name" value="{{.Name}}">
                     <input type="hidden" name="type" value="{{.Type}}">
                     <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
                     <input type="hidden" name="q" value="{{$.ZoneQuery}}">
                     <input type="hidden" name="page" value="{{$.ZonePage}}">
+                    <input type="hidden" name="tab" value="templates">
                     <button
                       type="submit"
                       class="btn btn-error btn-xs"
-                      hx-confirm="{{index $.L "confirm_delete_record"}}"
                     >
                       {{index $.L "delete_record"}}
                     </button>
                   </form>
                   {{end}}
+                  {{end}}
                 </td>
               </tr>
+              {{end}}
               {{else}}
               <tr>
                 <td colspan="5" class="text-center py-8 opacity-70">{{index .L "no_records"}}</td>
@@ -93,66 +173,82 @@
       </div>
 
       {{if .IsAdmin}}
+      {{$templateDialogEdit := and .TemplateRecordForm.Editing .TemplateDialogEditing}}
+      {{$showTXTDialog := or (containsType .AvailableRecordTypes "TXT") (and $templateDialogEdit (eq .TemplateRecordForm.Type "TXT"))}}
+      {{$showSRVDialog := or (containsType .AvailableRecordTypes "SRV") (and $templateDialogEdit (eq .TemplateRecordForm.Type "SRV"))}}
+      {{$showSOADialog := or (containsType .AvailableRecordTypes "SOA") (and $templateDialogEdit (eq .TemplateRecordForm.Type "SOA"))}}
+      {{$showCAADialog := or (containsType .AvailableRecordTypes "CAA") (and $templateDialogEdit (eq .TemplateRecordForm.Type "CAA"))}}
+      {{$showTLSADialog := or (containsType .AvailableRecordTypes "TLSA") (and $templateDialogEdit (eq .TemplateRecordForm.Type "TLSA"))}}
       <form
         hx-post="/templates/{{pathEscape .SelectedTemplate.Name}}/records"
         hx-target="#template-editor"
         hx-swap="outerHTML"
         class="grid gap-3 md:grid-cols-6"
         data-record-form="template"
-        data-auto-open-record-dialog="{{if and .TemplateRecordForm.Editing (eq .TemplateRecordForm.Type "TXT")}}TXT{{else if and .TemplateRecordForm.Editing (eq .TemplateRecordForm.Type "SRV")}}SRV{{end}}"
+        data-auto-open-record-dialog="{{if and $templateDialogEdit (eq .TemplateRecordForm.Type "TXT")}}TXT{{else if and $templateDialogEdit (eq .TemplateRecordForm.Type "SRV")}}SRV{{else if and $templateDialogEdit (eq .TemplateRecordForm.Type "SOA")}}SOA{{else if and $templateDialogEdit (eq .TemplateRecordForm.Type "CAA")}}CAA{{else if and $templateDialogEdit (eq .TemplateRecordForm.Type "TLSA")}}TLSA{{end}}"
       >
         <input type="hidden" name="selected_zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
         <input type="hidden" name="q" value="{{.ZoneQuery}}">
         <input type="hidden" name="page" value="{{.ZonePage}}">
-        <input type="hidden" name="old_name" value="{{.TemplateRecordForm.OldName}}">
-        <input type="hidden" name="old_type" value="{{.TemplateRecordForm.OldType}}">
+        <input type="hidden" name="tab" value="templates">
+        <input type="hidden" name="old_name" value="{{if $templateDialogEdit}}{{.TemplateRecordForm.OldName}}{{end}}">
+        <input type="hidden" name="old_type" value="{{if $templateDialogEdit}}{{.TemplateRecordForm.OldType}}{{end}}">
         <label class="floating-label md:col-span-2">
           <span>{{index .L "record_name"}}</span>
-          <input type="text" name="name" value="{{.TemplateRecordForm.Name}}" class="input input-bordered w-full" placeholder="@ / www / 10" required>
+          <input type="text" name="name" value="{{if $templateDialogEdit}}{{.TemplateRecordForm.Name}}{{end}}" class="input input-bordered w-full" placeholder="@ / www / 10" required>
         </label>
         <label class="floating-label">
           <span>{{index .L "record_type"}}</span>
           <select name="type" class="select select-bordered w-full">
-            <option {{if eq .TemplateRecordForm.Type "A"}}selected{{end}}>A</option>
-            <option {{if eq .TemplateRecordForm.Type "AAAA"}}selected{{end}}>AAAA</option>
-            <option {{if eq .TemplateRecordForm.Type "CNAME"}}selected{{end}}>CNAME</option>
-            <option {{if eq .TemplateRecordForm.Type "MX"}}selected{{end}}>MX</option>
-            <option {{if eq .TemplateRecordForm.Type "NS"}}selected{{end}}>NS</option>
-            <option {{if eq .TemplateRecordForm.Type "TXT"}}selected{{end}}>TXT</option>
-            <option {{if eq .TemplateRecordForm.Type "SRV"}}selected{{end}}>SRV</option>
-            <option {{if eq .TemplateRecordForm.Type "PTR"}}selected{{end}}>PTR</option>
-            <option {{if eq .TemplateRecordForm.Type "SOA"}}selected{{end}}>SOA</option>
-            <option {{if eq .TemplateRecordForm.Type "CAA"}}selected{{end}}>CAA</option>
-            <option {{if eq .TemplateRecordForm.Type "TLSA"}}selected{{end}}>TLSA</option>
+            {{if and $templateDialogEdit (not (containsType .AvailableRecordTypes .TemplateRecordForm.Type))}}
+            <option selected>{{.TemplateRecordForm.Type}}</option>
+            {{end}}
+            {{range .AvailableRecordTypes}}
+            <option {{if and $templateDialogEdit (eq $.TemplateRecordForm.Type .)}}selected{{end}}>{{.}}</option>
+            {{end}}
           </select>
         </label>
         <label class="floating-label">
           <span>{{index .L "ttl"}}</span>
-          <input type="number" min="60" step="60" name="ttl" value="{{.TemplateRecordForm.TTL}}" class="input input-bordered w-full" required>
+          <input type="number" min="60" step="60" name="ttl" value="{{if $templateDialogEdit}}{{.TemplateRecordForm.TTL}}{{else}}3600{{end}}" class="input input-bordered w-full" required>
         </label>
         <label class="floating-label md:col-span-2">
           <span>{{index .L "content"}}</span>
           <div class="flex flex-col gap-2 sm:flex-row">
-            <input type="text" name="content" value="{{.TemplateRecordForm.Content}}" class="input input-bordered w-full" required>
+            <input type="text" name="content" value="{{if $templateDialogEdit}}{{.TemplateRecordForm.Content}}{{end}}" class="input input-bordered w-full" required>
             <div class="flex gap-2 sm:shrink-0">
+              {{if $showTXTDialog}}
               <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="TXT">{{index .L "txt_helper"}}</button>
+              {{end}}
+              {{if $showSRVDialog}}
               <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="SRV">{{index .L "srv_helper"}}</button>
+              {{end}}
+              {{if $showSOADialog}}
+              <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="SOA">{{index .L "soa_helper"}}</button>
+              {{end}}
+              {{if $showCAADialog}}
+              <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="CAA">{{index .L "caa_helper"}}</button>
+              {{end}}
+              {{if $showTLSADialog}}
+              <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="TLSA">{{index .L "tlsa_helper"}}</button>
+              {{end}}
             </div>
           </div>
         </label>
         <div class="md:col-span-6 flex flex-wrap gap-2">
           <button type="submit" class="btn btn-secondary">
-            {{if .TemplateRecordForm.Editing}}
+            {{if $templateDialogEdit}}
             {{index .L "update_record"}}
             {{else}}
             {{index .L "save_record"}}
             {{end}}
           </button>
-          {{if .TemplateRecordForm.Editing}}
+          {{if $templateDialogEdit}}
           <button
             type="button"
             class="btn btn-ghost"
-            hx-get="/templates/{{pathEscape .SelectedTemplate.Name}}/editor{{if .SelectedZone}}?zone={{pathEscape .SelectedZone.Name}}&{{else}}?{{end}}q={{pathEscape .ZoneQuery}}&page={{.ZonePage}}"
+            data-record-edit-cancel="1"
+            hx-get="/templates/{{pathEscape .SelectedTemplate.Name}}/editor{{if .SelectedZone}}?zone={{pathEscape .SelectedZone.Name}}&{{else}}?{{end}}q={{pathEscape .ZoneQuery}}&page={{.ZonePage}}&tab=templates"
             hx-target="#template-editor"
             hx-swap="outerHTML"
           >
@@ -162,6 +258,7 @@
         </div>
       </form>
 
+      {{if $showTXTDialog}}
       <dialog class="modal" data-record-dialog="TXT">
         <div class="modal-box">
           <h3 class="font-semibold text-lg">{{index .L "txt_dialog_title"}}</h3>
@@ -174,11 +271,13 @@
             </form>
           </div>
         </div>
-        <form method="dialog" class="modal-backdrop">
-          <button>{{index .L "close"}}</button>
-        </form>
+      <form method="dialog" class="modal-backdrop">
+        <button>{{index .L "close"}}</button>
+      </form>
       </dialog>
+      {{end}}
 
+      {{if $showSRVDialog}}
       <dialog class="modal" data-record-dialog="SRV">
         <div class="modal-box">
           <h3 class="font-semibold text-lg">{{index .L "srv_dialog_title"}}</h3>
@@ -208,10 +307,127 @@
             </form>
           </div>
         </div>
+      <form method="dialog" class="modal-backdrop">
+        <button>{{index .L "close"}}</button>
+      </form>
+      </dialog>
+      {{end}}
+
+      {{if $showSOADialog}}
+      <dialog class="modal" data-record-dialog="SOA">
+        <div class="modal-box">
+          <h3 class="font-semibold text-lg">{{index .L "soa_dialog_title"}}</h3>
+          <p class="text-sm opacity-70 mt-1">{{index .L "soa_dialog_hint"}}</p>
+          <div class="grid gap-3 mt-4">
+            <label class="floating-label">
+              <span>{{index .L "soa_primary_ns"}}</span>
+              <input type="text" class="input input-bordered w-full" data-soa-mname placeholder="ns1.example.org.">
+            </label>
+            <label class="floating-label">
+              <span>{{index .L "soa_hostmaster"}}</span>
+              <input type="text" class="input input-bordered w-full" data-soa-rname placeholder="hostmaster.example.org.">
+            </label>
+            <label class="floating-label">
+              <span>{{index .L "soa_serial"}}</span>
+              <input type="number" min="1" class="input input-bordered w-full" data-soa-serial placeholder="YYYYMMDD01">
+            </label>
+            <label class="floating-label">
+              <span>{{index .L "soa_refresh"}}</span>
+              <input type="number" min="60" class="input input-bordered w-full" data-soa-refresh placeholder="7200">
+            </label>
+            <label class="floating-label">
+              <span>{{index .L "soa_retry"}}</span>
+              <input type="number" min="60" class="input input-bordered w-full" data-soa-retry placeholder="1800">
+            </label>
+            <label class="floating-label">
+              <span>{{index .L "soa_expire"}}</span>
+              <input type="number" min="60" class="input input-bordered w-full" data-soa-expire placeholder="1209600">
+            </label>
+            <label class="floating-label">
+              <span>{{index .L "soa_minimum"}}</span>
+              <input type="number" min="60" class="input input-bordered w-full" data-soa-minimum placeholder="3600">
+            </label>
+          </div>
+          <div class="modal-action">
+            <button type="button" class="btn btn-primary" data-soa-dialog-apply>{{index .L "apply"}}</button>
+            <form method="dialog">
+              <button class="btn">{{index .L "cancel"}}</button>
+            </form>
+          </div>
+        </div>
+      <form method="dialog" class="modal-backdrop">
+        <button>{{index .L "close"}}</button>
+      </form>
+      </dialog>
+      {{end}}
+
+      {{if $showCAADialog}}
+      <dialog class="modal" data-record-dialog="CAA">
+        <div class="modal-box">
+          <h3 class="font-semibold text-lg">{{index .L "caa_dialog_title"}}</h3>
+          <p class="text-sm opacity-70 mt-1">{{index .L "caa_dialog_hint"}}</p>
+          <div class="grid gap-3 sm:grid-cols-3 mt-4">
+            <label class="floating-label">
+              <span>{{index .L "caa_flags"}}</span>
+              <input type="number" min="0" max="255" value="0" class="input input-bordered w-full" data-caa-flags>
+            </label>
+            <label class="floating-label sm:col-span-2">
+              <span>{{index .L "caa_tag"}}</span>
+              <input type="text" class="input input-bordered w-full" data-caa-tag placeholder="issue">
+            </label>
+            <label class="floating-label sm:col-span-3">
+              <span>{{index .L "caa_value"}}</span>
+              <input type="text" class="input input-bordered w-full" data-caa-value placeholder="letsencrypt.org">
+            </label>
+          </div>
+          <div class="modal-action">
+            <button type="button" class="btn btn-primary" data-caa-dialog-apply>{{index .L "apply"}}</button>
+            <form method="dialog">
+              <button class="btn">{{index .L "cancel"}}</button>
+            </form>
+          </div>
+        </div>
         <form method="dialog" class="modal-backdrop">
           <button>{{index .L "close"}}</button>
         </form>
       </dialog>
+      {{end}}
+
+      {{if $showTLSADialog}}
+      <dialog class="modal" data-record-dialog="TLSA">
+        <div class="modal-box">
+          <h3 class="font-semibold text-lg">{{index .L "tlsa_dialog_title"}}</h3>
+          <p class="text-sm opacity-70 mt-1">{{index .L "tlsa_dialog_hint"}}</p>
+          <div class="grid gap-3 sm:grid-cols-3 mt-4">
+            <label class="floating-label">
+              <span>{{index .L "tlsa_usage"}}</span>
+              <input type="number" min="0" max="3" value="3" class="input input-bordered w-full" data-tlsa-usage>
+            </label>
+            <label class="floating-label">
+              <span>{{index .L "tlsa_selector"}}</span>
+              <input type="number" min="0" max="1" value="1" class="input input-bordered w-full" data-tlsa-selector>
+            </label>
+            <label class="floating-label">
+              <span>{{index .L "tlsa_matching_type"}}</span>
+              <input type="number" min="0" max="2" value="1" class="input input-bordered w-full" data-tlsa-matching-type>
+            </label>
+            <label class="floating-label sm:col-span-3">
+              <span>{{index .L "tlsa_cert_data"}}</span>
+              <textarea class="textarea textarea-bordered w-full min-h-28" data-tlsa-cert-data placeholder="AABBCCDDEEFF..."></textarea>
+            </label>
+          </div>
+          <div class="modal-action">
+            <button type="button" class="btn btn-primary" data-tlsa-dialog-apply>{{index .L "apply"}}</button>
+            <form method="dialog">
+              <button class="btn">{{index .L "cancel"}}</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>{{index .L "close"}}</button>
+        </form>
+      </dialog>
+      {{end}}
       {{end}}
     </div>
     {{else}}

@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/croessner/go-pdns-ui/internal/access"
 	"github.com/croessner/go-pdns-ui/internal/assets"
 	"github.com/croessner/go-pdns-ui/internal/auth"
 	"github.com/croessner/go-pdns-ui/internal/domain"
@@ -16,25 +19,129 @@ import (
 	"github.com/croessner/go-pdns-ui/internal/pdns"
 )
 
-func Run(ctx context.Context, addr string) error {
-	zoneService, err := newZoneService()
+type Dependencies struct {
+	TemplateFS      fs.FS
+	ZoneService     domain.ZoneService
+	TemplateService domain.ZoneTemplateService
+	AuthService     auth.Service
+	I18nService     *i18n.Service
+	AccessService   access.Service
+}
+
+type Runtime struct {
+	config Config
+	logger *slog.Logger
+	deps   Dependencies
+}
+
+func NewRuntime(ctx context.Context, config Config, logger *slog.Logger, deps Dependencies) (*Runtime, error) {
+	resolvedConfig := config.withDefaults()
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	resolvedDeps := deps
+	if resolvedDeps.TemplateFS == nil {
+		resolvedDeps.TemplateFS = assets.Files
+	}
+
+	if resolvedDeps.ZoneService == nil {
+		zoneService, err := newZoneService(logger)
+		if err != nil {
+			return nil, err
+		}
+		resolvedDeps.ZoneService = zoneService
+	}
+
+	if resolvedDeps.TemplateService == nil {
+		resolvedDeps.TemplateService = newTemplateService(logger)
+	}
+
+	if resolvedDeps.AuthService == nil {
+		authService, err := auth.NewInMemoryServiceFromEnvWithLogger(ctx, logger.With("component", "auth"))
+		if err != nil {
+			return nil, fmt.Errorf("initialize auth: %w", err)
+		}
+		resolvedDeps.AuthService = authService
+	}
+	if resolvedConfig.OIDCOnlyLogin && !resolvedDeps.AuthService.OIDCEnabled() {
+		return nil, errors.New("GO_PDNS_UI_AUTH_OIDC_ONLY=true requires OIDC to be configured")
+	}
+
+	if resolvedDeps.I18nService == nil {
+		i18nService, err := i18n.NewService(assets.Files, "locales", "en")
+		if err != nil {
+			return nil, fmt.Errorf("initialize i18n: %w", err)
+		}
+		resolvedDeps.I18nService = i18nService
+	}
+
+	if resolvedDeps.AccessService == nil {
+		accessService, err := access.NewService(
+			ctx,
+			resolvedConfig.AuthzMode,
+			access.DBConfig{
+				DSN:                 resolvedConfig.DatabaseURL,
+				MaxOpenConns:        resolvedConfig.DBMaxOpenConns,
+				MaxIdleConns:        resolvedConfig.DBMaxIdleConns,
+				ConnMaxLifetimeSecs: resolvedConfig.DBConnMaxLifetimeSecs,
+				OIDCAutoCreate:      &resolvedConfig.OIDCAutoCreate,
+			},
+			logger,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("initialize access control: %w", err)
+		}
+		resolvedDeps.AccessService = accessService
+	}
+
+	runtime := &Runtime{
+		config: resolvedConfig,
+		logger: logger.With("component", "app"),
+		deps:   resolvedDeps,
+	}
+
+	runtime.logger.Info(
+		"runtime initialized",
+		"listen_address", runtime.config.ListenAddress,
+		"log_level", runtime.config.LogLevel,
+		"authz_mode", runtime.config.AuthzMode,
+	)
+
+	return runtime, nil
+}
+
+func Run(ctx context.Context, config Config, logger *slog.Logger) error {
+	runtime, err := NewRuntime(ctx, config, logger, Dependencies{})
 	if err != nil {
 		return err
 	}
 
-	templateService := newTemplateService()
+	return runtime.Run(ctx)
+}
 
-	authService, err := auth.NewInMemoryServiceFromEnv(ctx)
-	if err != nil {
-		return fmt.Errorf("initialize auth: %w", err)
-	}
+func (r *Runtime) Run(ctx context.Context) error {
+	defer func() {
+		if r.deps.AccessService != nil {
+			if err := r.deps.AccessService.Close(); err != nil {
+				r.logger.Warn("access_service_close_failed", "error", err)
+			}
+		}
+	}()
 
-	i18nService, err := i18n.NewService(assets.Files, "locales", "en")
-	if err != nil {
-		return fmt.Errorf("initialize i18n: %w", err)
-	}
-
-	handler, err := ui.NewHandler(assets.Files, zoneService, templateService, authService, i18nService)
+	handler, err := ui.NewHandler(
+		r.deps.TemplateFS,
+		r.deps.ZoneService,
+		r.deps.TemplateService,
+		r.deps.AuthService,
+		r.deps.I18nService,
+		r.deps.AccessService,
+		ui.HandlerOptions{
+			OIDCOnlyLogin:        r.config.OIDCOnlyLogin,
+			AvailableRecordTypes: r.config.AvailableRecordTypes,
+		},
+		r.logger.With("component", "http"),
+	)
 	if err != nil {
 		return fmt.Errorf("initialize handlers: %w", err)
 	}
@@ -43,36 +150,55 @@ func Run(ctx context.Context, addr string) error {
 	handler.RegisterRoutes(mux)
 
 	server := &http.Server{
-		Addr:              addr,
+		Addr:              r.config.ListenAddress,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	go func() {
 		<-ctx.Done()
+		r.logger.Info("shutdown signal received")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = server.Shutdown(shutdownCtx)
+		if shutdownErr := server.Shutdown(shutdownCtx); shutdownErr != nil {
+			r.logger.Error("graceful shutdown failed", "error", shutdownErr)
+		}
 	}()
 
+	r.logger.Info("http server starting", "listen_address", r.config.ListenAddress)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		r.logger.Error("http server stopped with error", "error", err)
 		return err
 	}
 
+	r.logger.Info("http server stopped")
 	return nil
 }
 
-func newZoneService() (domain.ZoneService, error) {
+func newZoneService(logger *slog.Logger) (domain.ZoneService, error) {
 	pdnsConfig := pdns.LoadConfigFromEnv()
 	if pdnsConfig.Enabled() {
-		client := pdns.NewClient(pdnsConfig)
-		repo := pdns.NewRepository(client, pdnsConfig.ServerID)
+		logger.Info(
+			"using PowerDNS backend",
+			"backend", "powerdns",
+			"pdns_api_url", pdnsConfig.BaseURL,
+			"pdns_server_id", pdnsConfig.ServerID,
+			"http_timeout_seconds", int(pdnsConfig.Timeout/time.Second),
+		)
+		client := pdns.NewClient(pdnsConfig, logger.With("component", "pdns_client"))
+		repo := pdns.NewRepository(client, pdnsConfig.ServerID, logger.With("component", "pdns_repository"))
 		return domain.NewDraftZoneService(repo), nil
 	}
 
-	// Local fallback for development when no PowerDNS API config is set.
+	logger.Info("using in-memory backend", "backend", "memory", "seed_zone_count", len(seedZones()))
 	inMemoryRepo := domain.NewInMemoryZoneRepository(seedZones())
 	return domain.NewDraftZoneService(inMemoryRepo), nil
+}
+
+func newTemplateService(logger *slog.Logger) domain.ZoneTemplateService {
+	templates := seedTemplates()
+	logger.Info("template service initialized", "seed_template_count", len(templates))
+	return domain.NewInMemoryZoneTemplateService(templates)
 }
 
 func seedZones() []domain.Zone {
@@ -115,10 +241,6 @@ func seedZones() []domain.Zone {
 			},
 		},
 	}
-}
-
-func newTemplateService() domain.ZoneTemplateService {
-	return domain.NewInMemoryZoneTemplateService(seedTemplates())
 }
 
 func seedTemplates() []domain.ZoneTemplate {

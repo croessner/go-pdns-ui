@@ -6,10 +6,44 @@
   <title>{{index .L "app_title"}}</title>
   <script>
     (function () {
-      const savedTheme = localStorage.getItem("go-pdns-ui-theme");
-      if (savedTheme) {
-        document.documentElement.setAttribute("data-theme", savedTheme);
+      const key = "go-pdns-ui-theme";
+      const allowedThemes = new Set(["light", "dark"]);
+      const root = document.documentElement;
+
+      function readTheme() {
+        try {
+          return (localStorage.getItem(key) || "").trim().toLowerCase();
+        } catch (_) {
+          return "";
+        }
       }
+
+      function persistTheme(theme) {
+        try {
+          localStorage.setItem(key, theme);
+        } catch (_) {
+          // Ignore storage failures (private mode/restrictions).
+        }
+      }
+
+      function resolveTheme(theme) {
+        return allowedThemes.has(theme) ? theme : "light";
+      }
+
+      function applyTheme(theme) {
+        const resolvedTheme = resolveTheme(theme);
+        root.setAttribute("data-theme", resolvedTheme);
+        root.style.colorScheme = resolvedTheme;
+        persistTheme(resolvedTheme);
+
+        return resolvedTheme;
+      }
+
+      const initialTheme = applyTheme(readTheme());
+      window.__goPDNSUITheme = { applyTheme, resolveTheme };
+      window.addEventListener("DOMContentLoaded", () => {
+        applyTheme(initialTheme);
+      }, { once: true });
     })();
   </script>
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css">
@@ -29,7 +63,7 @@
     }
   </style>
 </head>
-<body class="min-h-screen bg-base-200">
+<body class="min-h-screen bg-base-200 text-base-content">
   <header class="navbar bg-base-100 shadow-sm px-4 lg:px-8">
     <div class="flex-1">
       <a href="/" class="text-2xl font-black tracking-tight">{{index .L "app_title"}}</a>
@@ -76,7 +110,7 @@
     <section class="rounded-box bg-gradient-to-r from-primary to-secondary p-6 shadow-lg">
       <h1 class="text-3xl font-bold text-base-content">{{index .L "dashboard_title"}}</h1>
       <p class="mt-1 text-base-content opacity-90">{{index .L "dashboard_intro"}}</p>
-      {{if not .IsAdmin}}
+      {{if not .CanEditZones}}
       <p class="mt-2 text-sm text-base-content opacity-90">{{index .L "read_only_mode"}}</p>
       {{end}}
     </section>
@@ -89,7 +123,7 @@
   <button
     id="scroll-top"
     type="button"
-    class="btn btn-primary btn-circle fixed bottom-5 right-5 z-40 shadow-lg opacity-0 pointer-events-none transition-opacity duration-200"
+    class="btn btn-primary btn-circle fixed bottom-5 right-5 z-40 shadow-lg opacity-90 hover:opacity-100 transition-opacity duration-200"
     title="{{index .L "scroll_top"}}"
     aria-label="{{index .L "scroll_top"}}"
   >
@@ -97,6 +131,22 @@
       <path d="M10 14V6M10 6L6.5 9.5M10 6L13.5 9.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
     </svg>
   </button>
+
+  <dialog id="confirm-action-modal" class="modal">
+    <div class="modal-box">
+      <h3 id="confirm-action-title" class="font-semibold text-lg">{{index .L "confirm_action_title"}}</h3>
+      <p id="confirm-action-message" class="mt-2 text-sm opacity-80"></p>
+      <div class="modal-action">
+        <button id="confirm-action-accept" type="button" class="btn btn-error">{{index .L "confirm"}}</button>
+        <form method="dialog">
+          <button class="btn">{{index .L "cancel"}}</button>
+        </form>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+      <button>{{index .L "close"}}</button>
+    </form>
+  </dialog>
 
   <script>
     function setCookie(name, value, maxAgeSeconds) {
@@ -142,6 +192,14 @@
       return JSON.stringify(raw || "");
     }
 
+    function decodeGenericQuotedValue(raw) {
+      const value = (raw || "").trim();
+      if (value.length >= 2 && value.startsWith("\"") && value.endsWith("\"")) {
+        return decodeTXTValue(value);
+      }
+      return value;
+    }
+
     function parseSRVValue(raw) {
       const fields = (raw || "").trim().split(/\s+/).filter(Boolean);
       if (fields.length !== 4) {
@@ -155,6 +213,96 @@
       };
     }
 
+    function parseSOAValue(raw) {
+      const fields = (raw || "").trim().split(/\s+/).filter(Boolean);
+      if (fields.length < 7) {
+        return {
+          mname: "",
+          rname: "",
+          serial: "",
+          refresh: "",
+          retry: "",
+          expire: "",
+          minimum: ""
+        };
+      }
+      return {
+        mname: fields[0],
+        rname: fields[1],
+        serial: fields[2],
+        refresh: fields[3],
+        retry: fields[4],
+        expire: fields[5],
+        minimum: fields[6]
+      };
+    }
+
+    function parseCAAValue(raw) {
+      const trimmed = (raw || "").trim();
+      const matched = /^(\d+)\s+([A-Za-z0-9-]+)\s+(.+)$/.exec(trimmed);
+      if (!matched) {
+        return { flags: "0", tag: "issue", value: "" };
+      }
+      return {
+        flags: matched[1],
+        tag: matched[2],
+        value: decodeGenericQuotedValue(matched[3])
+      };
+    }
+
+    function parseTLSAValue(raw) {
+      const fields = (raw || "").trim().split(/\s+/).filter(Boolean);
+      if (fields.length < 4) {
+        return {
+          usage: "3",
+          selector: "1",
+          matchingType: "1",
+          certData: ""
+        };
+      }
+      return {
+        usage: fields[0],
+        selector: fields[1],
+        matchingType: fields[2],
+        certData: fields.slice(3).join("")
+      };
+    }
+
+    function pad2(value) {
+      return value.toString().padStart(2, "0");
+    }
+
+    function defaultSOAValues() {
+      const now = new Date();
+      const serial = `${now.getUTCFullYear()}${pad2(now.getUTCMonth() + 1)}${pad2(now.getUTCDate())}01`;
+      return {
+        mname: "ns1.example.org.",
+        rname: "hostmaster.example.org.",
+        serial,
+        refresh: "7200",
+        retry: "1800",
+        expire: "1209600",
+        minimum: "3600"
+      };
+    }
+
+    function defaultCAAValues() {
+      return {
+        flags: "0",
+        tag: "issue",
+        value: "letsencrypt.org"
+      };
+    }
+
+    function defaultTLSAValues() {
+      return {
+        usage: "3",
+        selector: "1",
+        matchingType: "1",
+        certData: ""
+      };
+    }
+
     function bindRecordDialogs(scope) {
       const rootNode = scope instanceof Element ? scope : document;
       const forms = rootNode.querySelectorAll("form[data-record-form]");
@@ -163,18 +311,78 @@
 
         const typeInput = form.querySelector("select[name='type']");
         const contentInput = form.querySelector("input[name='content']");
-        const txtButton = form.querySelector("[data-open-record-dialog='TXT']");
-        const srvButton = form.querySelector("[data-open-record-dialog='SRV']");
+        const oldNameInput = form.querySelector("input[name='old_name']");
+        const oldTypeInput = form.querySelector("input[name='old_type']");
+        const cancelEditButton = form.querySelector("[data-record-edit-cancel='1']");
         const dialogRoot = form.parentElement || form;
-        const txtDialog = dialogRoot.querySelector("dialog[data-record-dialog='TXT']");
-        const srvDialog = dialogRoot.querySelector("dialog[data-record-dialog='SRV']");
-
-        if (!typeInput || !contentInput || !txtButton || !srvButton || !txtDialog || !srvDialog) {
+        if (!typeInput || !contentInput) {
           return;
         }
 
+        const dialogByType = {
+          TXT: dialogRoot.querySelector("dialog[data-record-dialog='TXT']"),
+          SRV: dialogRoot.querySelector("dialog[data-record-dialog='SRV']"),
+          SOA: dialogRoot.querySelector("dialog[data-record-dialog='SOA']"),
+          CAA: dialogRoot.querySelector("dialog[data-record-dialog='CAA']"),
+          TLSA: dialogRoot.querySelector("dialog[data-record-dialog='TLSA']")
+        };
+
+        const buttonByType = {
+          TXT: form.querySelector("[data-open-record-dialog='TXT']"),
+          SRV: form.querySelector("[data-open-record-dialog='SRV']"),
+          SOA: form.querySelector("[data-open-record-dialog='SOA']"),
+          CAA: form.querySelector("[data-open-record-dialog='CAA']"),
+          TLSA: form.querySelector("[data-open-record-dialog='TLSA']")
+        };
+
+        const isEditingRecord = () => {
+          const oldName = oldNameInput ? oldNameInput.value.trim() : "";
+          const oldType = oldTypeInput ? oldTypeInput.value.trim() : "";
+          return oldName !== "" && oldType !== "";
+        };
+
+        const requestRecordSubmit = () => {
+          if (typeof form.requestSubmit === "function") {
+            form.requestSubmit();
+            return;
+          }
+          form.submit();
+        };
+
+        const triggerRecordEditCancel = () => {
+          if (cancelEditButton && !cancelEditButton.disabled) {
+            cancelEditButton.click();
+          }
+        };
+
+        const bindDialogCloseBehavior = (dialog) => {
+          if (!dialog || dialog.dataset.recordDialogCloseBound === "1") return;
+          dialog.addEventListener("close", () => {
+            const wasApplied = dialog.dataset.recordDialogApplied === "1";
+            const openedInEditMode = dialog.dataset.recordDialogOpenedInEditMode === "1";
+            dialog.dataset.recordDialogApplied = "0";
+            dialog.dataset.recordDialogOpenedInEditMode = "0";
+
+            if (!wasApplied && openedInEditMode) {
+              triggerRecordEditCancel();
+            }
+          });
+          dialog.dataset.recordDialogCloseBound = "1";
+        };
+
+        Object.values(dialogByType).forEach((dialog) => bindDialogCloseBehavior(dialog));
+
+        const markDialogOpening = (dialog) => {
+          if (!dialog) return;
+          dialog.dataset.recordDialogApplied = "0";
+          dialog.dataset.recordDialogOpenedInEditMode = isEditingRecord() ? "1" : "0";
+        };
+
         const openTXTDialog = () => {
+          const txtDialog = dialogByType.TXT;
+          if (!txtDialog) return;
           typeInput.value = "TXT";
+          markDialogOpening(txtDialog);
           const txtInput = txtDialog.querySelector("[data-txt-dialog-input]");
           if (txtInput) {
             txtInput.value = decodeTXTValue(contentInput.value);
@@ -183,7 +391,10 @@
         };
 
         const openSRVDialog = () => {
+          const srvDialog = dialogByType.SRV;
+          if (!srvDialog) return;
           typeInput.value = "SRV";
+          markDialogOpening(srvDialog);
           const parsed = parseSRVValue(contentInput.value);
           const priorityInput = srvDialog.querySelector("[data-srv-priority]");
           const weightInput = srvDialog.querySelector("[data-srv-weight]");
@@ -196,19 +407,102 @@
           srvDialog.showModal();
         };
 
-        txtButton.addEventListener("click", openTXTDialog);
-        srvButton.addEventListener("click", openSRVDialog);
+        const openSOADialog = () => {
+          const soaDialog = dialogByType.SOA;
+          if (!soaDialog) return;
+          typeInput.value = "SOA";
+          markDialogOpening(soaDialog);
+          const parsed = parseSOAValue(contentInput.value);
+          const defaults = defaultSOAValues();
+          const mnameInput = soaDialog.querySelector("[data-soa-mname]");
+          const rnameInput = soaDialog.querySelector("[data-soa-rname]");
+          const serialInput = soaDialog.querySelector("[data-soa-serial]");
+          const refreshInput = soaDialog.querySelector("[data-soa-refresh]");
+          const retryInput = soaDialog.querySelector("[data-soa-retry]");
+          const expireInput = soaDialog.querySelector("[data-soa-expire]");
+          const minimumInput = soaDialog.querySelector("[data-soa-minimum]");
+          if (mnameInput) mnameInput.placeholder = defaults.mname;
+          if (rnameInput) rnameInput.placeholder = defaults.rname;
+          if (serialInput) serialInput.placeholder = defaults.serial;
+          if (refreshInput) refreshInput.placeholder = defaults.refresh;
+          if (retryInput) retryInput.placeholder = defaults.retry;
+          if (expireInput) expireInput.placeholder = defaults.expire;
+          if (minimumInput) minimumInput.placeholder = defaults.minimum;
+          if (mnameInput) mnameInput.value = parsed.mname;
+          if (rnameInput) rnameInput.value = parsed.rname;
+          if (serialInput) serialInput.value = parsed.serial;
+          if (refreshInput) refreshInput.value = parsed.refresh;
+          if (retryInput) retryInput.value = parsed.retry;
+          if (expireInput) expireInput.value = parsed.expire;
+          if (minimumInput) minimumInput.value = parsed.minimum;
+          soaDialog.showModal();
+        };
 
-        const txtApplyButton = txtDialog.querySelector("[data-txt-dialog-apply]");
+        const openCAADialog = () => {
+          const caaDialog = dialogByType.CAA;
+          if (!caaDialog) return;
+          typeInput.value = "CAA";
+          markDialogOpening(caaDialog);
+          const parsed = parseCAAValue(contentInput.value);
+          const defaults = defaultCAAValues();
+          const flagsInput = caaDialog.querySelector("[data-caa-flags]");
+          const tagInput = caaDialog.querySelector("[data-caa-tag]");
+          const valueInput = caaDialog.querySelector("[data-caa-value]");
+          if (flagsInput) flagsInput.value = parsed.flags || defaults.flags;
+          if (tagInput) tagInput.value = parsed.tag || defaults.tag;
+          if (valueInput) valueInput.value = parsed.value || defaults.value;
+          caaDialog.showModal();
+        };
+
+        const openTLSADialog = () => {
+          const tlsaDialog = dialogByType.TLSA;
+          if (!tlsaDialog) return;
+          typeInput.value = "TLSA";
+          markDialogOpening(tlsaDialog);
+          const parsed = parseTLSAValue(contentInput.value);
+          const defaults = defaultTLSAValues();
+          const usageInput = tlsaDialog.querySelector("[data-tlsa-usage]");
+          const selectorInput = tlsaDialog.querySelector("[data-tlsa-selector]");
+          const matchingTypeInput = tlsaDialog.querySelector("[data-tlsa-matching-type]");
+          const certDataInput = tlsaDialog.querySelector("[data-tlsa-cert-data]");
+          if (usageInput) usageInput.value = parsed.usage || defaults.usage;
+          if (selectorInput) selectorInput.value = parsed.selector || defaults.selector;
+          if (matchingTypeInput) matchingTypeInput.value = parsed.matchingType || defaults.matchingType;
+          if (certDataInput) certDataInput.value = parsed.certData || defaults.certData;
+          tlsaDialog.showModal();
+        };
+
+        const openDialogByType = {
+          TXT: openTXTDialog,
+          SRV: openSRVDialog,
+          SOA: openSOADialog,
+          CAA: openCAADialog,
+          TLSA: openTLSADialog
+        };
+
+        Object.keys(openDialogByType).forEach((recordType) => {
+          const button = buttonByType[recordType];
+          const dialog = dialogByType[recordType];
+          if (!button || !dialog) return;
+          button.addEventListener("click", openDialogByType[recordType]);
+        });
+
+        const txtDialog = dialogByType.TXT;
+        const txtApplyButton = txtDialog ? txtDialog.querySelector("[data-txt-dialog-apply]") : null;
         if (txtApplyButton) {
           txtApplyButton.addEventListener("click", () => {
             const txtInput = txtDialog.querySelector("[data-txt-dialog-input]");
             contentInput.value = encodeTXTValue(txtInput ? txtInput.value : "");
+            txtDialog.dataset.recordDialogApplied = "1";
             txtDialog.close();
+            if (isEditingRecord()) {
+              requestRecordSubmit();
+            }
           });
         }
 
-        const srvApplyButton = srvDialog.querySelector("[data-srv-dialog-apply]");
+        const srvDialog = dialogByType.SRV;
+        const srvApplyButton = srvDialog ? srvDialog.querySelector("[data-srv-dialog-apply]") : null;
         if (srvApplyButton) {
           srvApplyButton.addEventListener("click", () => {
             const priorityInput = srvDialog.querySelector("[data-srv-priority]");
@@ -220,7 +514,81 @@
             const port = portInput ? portInput.value.trim() : "";
             const target = targetInput ? targetInput.value.trim() : "";
             contentInput.value = `${priority} ${weight} ${port} ${target}`.trim();
+            srvDialog.dataset.recordDialogApplied = "1";
             srvDialog.close();
+            if (isEditingRecord()) {
+              requestRecordSubmit();
+            }
+          });
+        }
+
+        const soaDialog = dialogByType.SOA;
+        const soaApplyButton = soaDialog ? soaDialog.querySelector("[data-soa-dialog-apply]") : null;
+        if (soaApplyButton) {
+          soaApplyButton.addEventListener("click", () => {
+            const defaults = defaultSOAValues();
+            const mnameInput = soaDialog.querySelector("[data-soa-mname]");
+            const rnameInput = soaDialog.querySelector("[data-soa-rname]");
+            const serialInput = soaDialog.querySelector("[data-soa-serial]");
+            const refreshInput = soaDialog.querySelector("[data-soa-refresh]");
+            const retryInput = soaDialog.querySelector("[data-soa-retry]");
+            const expireInput = soaDialog.querySelector("[data-soa-expire]");
+            const minimumInput = soaDialog.querySelector("[data-soa-minimum]");
+            const mname = mnameInput ? (mnameInput.value.trim() || defaults.mname) : defaults.mname;
+            const rname = rnameInput ? (rnameInput.value.trim() || defaults.rname) : defaults.rname;
+            const serial = serialInput ? (serialInput.value.trim() || defaults.serial) : defaults.serial;
+            const refresh = refreshInput ? (refreshInput.value.trim() || defaults.refresh) : defaults.refresh;
+            const retry = retryInput ? (retryInput.value.trim() || defaults.retry) : defaults.retry;
+            const expire = expireInput ? (expireInput.value.trim() || defaults.expire) : defaults.expire;
+            const minimum = minimumInput ? (minimumInput.value.trim() || defaults.minimum) : defaults.minimum;
+            contentInput.value = `${mname} ${rname} ${serial} ${refresh} ${retry} ${expire} ${minimum}`.trim();
+            soaDialog.dataset.recordDialogApplied = "1";
+            soaDialog.close();
+            if (isEditingRecord()) {
+              requestRecordSubmit();
+            }
+          });
+        }
+
+        const caaDialog = dialogByType.CAA;
+        const caaApplyButton = caaDialog ? caaDialog.querySelector("[data-caa-dialog-apply]") : null;
+        if (caaApplyButton) {
+          caaApplyButton.addEventListener("click", () => {
+            const defaults = defaultCAAValues();
+            const flagsInput = caaDialog.querySelector("[data-caa-flags]");
+            const tagInput = caaDialog.querySelector("[data-caa-tag]");
+            const valueInput = caaDialog.querySelector("[data-caa-value]");
+            const flags = flagsInput ? (flagsInput.value.trim() || defaults.flags) : defaults.flags;
+            const tag = tagInput ? (tagInput.value.trim() || defaults.tag) : defaults.tag;
+            const value = valueInput ? (valueInput.value.trim() || defaults.value) : defaults.value;
+            contentInput.value = `${flags} ${tag} ${encodeTXTValue(value)}`.trim();
+            caaDialog.dataset.recordDialogApplied = "1";
+            caaDialog.close();
+            if (isEditingRecord()) {
+              requestRecordSubmit();
+            }
+          });
+        }
+
+        const tlsaDialog = dialogByType.TLSA;
+        const tlsaApplyButton = tlsaDialog ? tlsaDialog.querySelector("[data-tlsa-dialog-apply]") : null;
+        if (tlsaApplyButton) {
+          tlsaApplyButton.addEventListener("click", () => {
+            const defaults = defaultTLSAValues();
+            const usageInput = tlsaDialog.querySelector("[data-tlsa-usage]");
+            const selectorInput = tlsaDialog.querySelector("[data-tlsa-selector]");
+            const matchingTypeInput = tlsaDialog.querySelector("[data-tlsa-matching-type]");
+            const certDataInput = tlsaDialog.querySelector("[data-tlsa-cert-data]");
+            const usage = usageInput ? (usageInput.value.trim() || defaults.usage) : defaults.usage;
+            const selector = selectorInput ? (selectorInput.value.trim() || defaults.selector) : defaults.selector;
+            const matchingType = matchingTypeInput ? (matchingTypeInput.value.trim() || defaults.matchingType) : defaults.matchingType;
+            const certData = certDataInput ? certDataInput.value.replace(/\s+/g, "").trim() : "";
+            contentInput.value = `${usage} ${selector} ${matchingType} ${certData || defaults.certData}`.trim();
+            tlsaDialog.dataset.recordDialogApplied = "1";
+            tlsaDialog.close();
+            if (isEditingRecord()) {
+              requestRecordSubmit();
+            }
           });
         }
 
@@ -228,14 +596,10 @@
 
         const autoOpenDialog = (form.dataset.autoOpenRecordDialog || "").toUpperCase();
         const currentScrollY = window.scrollY;
-        if (autoOpenDialog === "TXT") {
+        const autoOpen = openDialogByType[autoOpenDialog];
+        if (typeof autoOpen === "function") {
           requestAnimationFrame(() => {
-            openTXTDialog();
-            requestAnimationFrame(() => window.scrollTo(window.scrollX, currentScrollY));
-          });
-        } else if (autoOpenDialog === "SRV") {
-          requestAnimationFrame(() => {
-            openSRVDialog();
+            autoOpen();
             requestAnimationFrame(() => window.scrollTo(window.scrollX, currentScrollY));
           });
         }
@@ -245,13 +609,36 @@
     const root = document.documentElement;
     const toggle = document.getElementById("theme-toggle");
     const scrollTopButton = document.getElementById("scroll-top");
+    const confirmDialog = document.getElementById("confirm-action-modal");
+    const confirmDialogTitle = document.getElementById("confirm-action-title");
+    const confirmDialogMessage = document.getElementById("confirm-action-message");
+    const confirmDialogAccept = document.getElementById("confirm-action-accept");
+    const confirmDialogDefaultTitle = confirmDialogTitle ? confirmDialogTitle.textContent.trim() : "";
+    let pendingConfirmIssueRequest = null;
+    const themeController = window.__goPDNSUITheme || null;
+    const allThemes = new Set(["light", "dark"]);
+
+    function applyTheme(theme) {
+      if (themeController && typeof themeController.applyTheme === "function") {
+        return themeController.applyTheme(theme);
+      }
+      const resolvedTheme = allThemes.has(theme) ? theme : "light";
+      root.setAttribute("data-theme", resolvedTheme);
+      root.style.colorScheme = resolvedTheme;
+
+      try {
+        localStorage.setItem("go-pdns-ui-theme", resolvedTheme);
+      } catch (_) {
+        // Ignore storage failures (private mode/restrictions).
+      }
+
+      return resolvedTheme;
+    }
 
     function updateScrollTopButtonVisibility() {
       if (!scrollTopButton) return;
-      const shouldShow = window.scrollY > 320;
-      scrollTopButton.classList.toggle("opacity-0", !shouldShow);
-      scrollTopButton.classList.toggle("pointer-events-none", !shouldShow);
-      scrollTopButton.classList.toggle("opacity-100", shouldShow);
+      scrollTopButton.classList.remove("opacity-0", "pointer-events-none");
+      scrollTopButton.classList.add("opacity-90");
     }
 
     if (scrollTopButton) {
@@ -266,20 +653,72 @@
       toggle.addEventListener("click", () => {
         const current = root.getAttribute("data-theme") || "light";
         const next = current === "dark" ? "light" : "dark";
-        root.setAttribute("data-theme", next);
-        localStorage.setItem("go-pdns-ui-theme", next);
+        applyTheme(next);
       });
     }
+
+    if (confirmDialog) {
+      confirmDialog.addEventListener("close", () => {
+        pendingConfirmIssueRequest = null;
+      });
+    }
+    if (confirmDialogAccept) {
+      confirmDialogAccept.addEventListener("click", () => {
+        if (!pendingConfirmIssueRequest) {
+          if (confirmDialog) confirmDialog.close();
+          return;
+        }
+        const issueRequest = pendingConfirmIssueRequest;
+        pendingConfirmIssueRequest = null;
+        issueRequest(true);
+        if (confirmDialog) confirmDialog.close();
+      });
+    }
+
+    document.body.addEventListener("htmx:confirm", (event) => {
+      const detail = event.detail || {};
+      const question = (detail.question || "").trim();
+      if (!question) return;
+
+      event.preventDefault();
+
+      if (!confirmDialog || typeof confirmDialog.showModal !== "function") {
+        if (window.confirm(question) && typeof detail.issueRequest === "function") {
+          detail.issueRequest(true);
+        }
+        return;
+      }
+
+      pendingConfirmIssueRequest = typeof detail.issueRequest === "function" ? detail.issueRequest : null;
+      if (!pendingConfirmIssueRequest) return;
+
+      if (confirmDialogTitle) {
+        confirmDialogTitle.textContent = confirmDialogDefaultTitle || confirmDialogTitle.textContent;
+      }
+      if (confirmDialogMessage) {
+        confirmDialogMessage.textContent = question;
+      }
+      confirmDialog.showModal();
+    });
 
     bindCollapsePersistence(document);
     bindRecordDialogs(document);
     let preservedScrollY = null;
+    let pendingSearchCaret = null;
     document.body.addEventListener("htmx:beforeRequest", (event) => {
       const detail = event.detail || {};
       const trigger = detail.requestConfig ? detail.requestConfig.elt : null;
       if (!trigger || !trigger.closest) {
         preservedScrollY = null;
+        pendingSearchCaret = null;
         return;
+      }
+      if (trigger.id === "zone-search-input") {
+        const start = typeof trigger.selectionStart === "number" ? trigger.selectionStart : null;
+        const end = typeof trigger.selectionEnd === "number" ? trigger.selectionEnd : start;
+        pendingSearchCaret = { start, end };
+      } else {
+        pendingSearchCaret = null;
       }
       if (trigger.closest("[data-preserve-scroll='1']")) {
         preservedScrollY = window.scrollY;
@@ -296,6 +735,21 @@
       const detail = event.detail || {};
       const target = detail.target;
       const trigger = detail.requestConfig ? detail.requestConfig.elt : null;
+      if (pendingSearchCaret !== null) {
+        const caret = pendingSearchCaret;
+        pendingSearchCaret = null;
+        requestAnimationFrame(() => {
+          const searchInput = document.getElementById("zone-search-input");
+          if (!searchInput) return;
+          searchInput.focus({ preventScroll: true });
+          if (caret.start !== null && typeof searchInput.setSelectionRange === "function") {
+            const valueLength = searchInput.value.length;
+            const start = Math.min(caret.start, valueLength);
+            const end = Math.min(caret.end === null ? caret.start : caret.end, valueLength);
+            searchInput.setSelectionRange(start, end);
+          }
+        });
+      }
 
       if (
         preservedScrollY !== null &&

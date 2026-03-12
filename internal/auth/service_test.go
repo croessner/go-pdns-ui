@@ -63,12 +63,27 @@ func TestMapGroupsToRole(t *testing.T) {
 	}
 }
 
-func TestMapGroupsRejectsUnknownGroups(t *testing.T) {
+func TestMapGroupsFallbacksToViewerForUnknownGroups(t *testing.T) {
 	t.Parallel()
 
-	_, err := mapGroupsToRole([]string{"guests"}, "admin", "user")
-	if err == nil {
-		t.Fatalf("expected unknown groups to fail")
+	role, err := mapGroupsToRole([]string{"guests"}, "admin", "user")
+	if err != nil {
+		t.Fatalf("expected unknown groups to fallback to viewer, got error: %v", err)
+	}
+	if role != RoleViewer {
+		t.Fatalf("expected viewer role, got %q", role)
+	}
+}
+
+func TestMapGroupsWithoutGroupsReturnsViewer(t *testing.T) {
+	t.Parallel()
+
+	role, err := mapGroupsToRole(nil, "admin", "user")
+	if err != nil {
+		t.Fatalf("expected empty groups to fallback to viewer, got error: %v", err)
+	}
+	if role != RoleViewer {
+		t.Fatalf("expected viewer role, got %q", role)
 	}
 }
 

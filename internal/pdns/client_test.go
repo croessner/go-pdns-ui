@@ -34,7 +34,7 @@ func TestClientRetriesWithAPIV1SuffixOnNotFound(t *testing.T) {
 		BaseURL: server.URL,
 		APIKey:  "test-key",
 		Timeout: time.Second,
-	})
+	}, nil)
 
 	var zones []pdnsZone
 	if err := client.get(context.Background(), "/servers/localhost/zones", &zones); err != nil {
@@ -87,7 +87,7 @@ func TestClientReturnsRetryErrorWhenFallbackAlsoFails(t *testing.T) {
 		BaseURL: server.URL,
 		APIKey:  "test-key",
 		Timeout: time.Second,
-	})
+	}, nil)
 
 	var zones []pdnsZone
 	err := client.get(context.Background(), "/servers/localhost/zones", &zones)

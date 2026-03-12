@@ -149,6 +149,9 @@ func (s *DraftZoneService) SaveRecord(ctx context.Context, zoneName, oldName, ol
 
 	oldName = strings.TrimSpace(oldName)
 	oldType = strings.ToUpper(strings.TrimSpace(oldType))
+	if oldName != "" && oldType == "SOA" && (normalized.Name != oldName || normalized.Type != "SOA") {
+		return fmt.Errorf("%w: SOA record cannot be removed", ErrInvalidRec)
+	}
 
 	if oldName != "" && oldType != "" && (oldName != normalized.Name || oldType != normalized.Type) {
 		zone.Records = slices.DeleteFunc(zone.Records, func(entry Record) bool {
@@ -192,6 +195,9 @@ func (s *DraftZoneService) DeleteRecord(ctx context.Context, zoneName, recordNam
 	recordType = strings.ToUpper(strings.TrimSpace(recordType))
 	if recordName == "" || recordType == "" {
 		return ErrInvalidRec
+	}
+	if recordType == "SOA" {
+		return fmt.Errorf("%w: SOA record cannot be removed", ErrInvalidRec)
 	}
 
 	zone.Records = slices.DeleteFunc(zone.Records, func(entry Record) bool {

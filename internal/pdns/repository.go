@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -16,13 +17,19 @@ import (
 type Repository struct {
 	client   *Client
 	serverID string
+	logger   *slog.Logger
 	mu       sync.RWMutex
 }
 
-func NewRepository(client *Client, serverID string) *Repository {
+func NewRepository(client *Client, serverID string, logger *slog.Logger) *Repository {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	return &Repository{
 		client:   client,
 		serverID: strings.TrimSpace(serverID),
+		logger:   logger,
 	}
 }
 
@@ -31,8 +38,10 @@ func (r *Repository) ListZones(ctx context.Context) ([]domain.Zone, error) {
 	path := r.zonesPath()
 	if err := r.client.get(ctx, path, &zones); err != nil {
 		if isStatusNotFound(err) {
+			r.logger.Warn("pdns_list_zones_server_not_found", "server_id", r.getServerID(), "error", err)
 			fallbackServerID, resolveErr := r.discoverServerID(ctx)
 			if resolveErr == nil && fallbackServerID != "" && fallbackServerID != r.getServerID() {
+				r.logger.Info("pdns_server_id_discovered", "old_server_id", r.getServerID(), "new_server_id", fallbackServerID)
 				r.setServerID(fallbackServerID)
 				path = r.zonesPath()
 				if retryErr := r.client.get(ctx, path, &zones); retryErr != nil {
@@ -59,6 +68,7 @@ func (r *Repository) ListZones(ctx context.Context) ([]domain.Zone, error) {
 		return strings.Compare(a.Name, b.Name)
 	})
 
+	r.logger.Debug("pdns_list_zones_succeeded", "zone_count", len(result), "server_id", r.getServerID())
 	return result, nil
 }
 
@@ -95,6 +105,8 @@ func (r *Repository) CreateZone(ctx context.Context, zone domain.Zone) error {
 		return mapRepositoryError(err)
 	}
 
+	r.logger.Info("pdns_zone_created", "zone_name", zone.Name, "dnssec_enabled", zone.DNSSECEnabled)
+
 	if len(zone.Records) == 0 {
 		return nil
 	}
@@ -112,6 +124,7 @@ func (r *Repository) DeleteZone(ctx context.Context, zoneName string) error {
 		return mapRepositoryError(err)
 	}
 
+	r.logger.Info("pdns_zone_deleted", "zone_name", zoneName)
 	return nil
 }
 
@@ -131,6 +144,7 @@ func (r *Repository) ApplyZone(ctx context.Context, desired domain.Zone) error {
 		if err := r.client.patch(ctx, r.zonePath(desired.Name), payload, nil); err != nil {
 			return mapRepositoryError(err)
 		}
+		r.logger.Info("pdns_zone_rrsets_applied", "zone_name", desired.Name, "rrset_change_count", len(rrsetChanges))
 	}
 
 	if current.DNSSECEnabled != desired.DNSSECEnabled {
@@ -142,6 +156,7 @@ func (r *Repository) ApplyZone(ctx context.Context, desired domain.Zone) error {
 		if err := r.client.put(ctx, r.zonePath(desired.Name), payload, nil); err != nil {
 			return mapRepositoryError(err)
 		}
+		r.logger.Info("pdns_zone_dnssec_updated", "zone_name", desired.Name, "dnssec_enabled", desired.DNSSECEnabled)
 	}
 
 	return nil
@@ -453,22 +468,27 @@ func ensureFQDN(name string) string {
 func (r *Repository) discoverServerID(ctx context.Context) (string, error) {
 	var servers []pdnsServer
 	if err := r.client.get(ctx, "/servers", &servers); err != nil {
+		r.logger.Error("pdns_discover_server_id_failed", "error", err)
 		return "", err
 	}
 
 	for _, server := range servers {
 		if strings.EqualFold(strings.TrimSpace(server.ID), "localhost") {
-			return strings.TrimSpace(server.ID), nil
+			serverID := strings.TrimSpace(server.ID)
+			r.logger.Debug("pdns_discover_server_id_result", "server_id", serverID)
+			return serverID, nil
 		}
 	}
 
 	for _, server := range servers {
 		id := strings.TrimSpace(server.ID)
 		if id != "" {
+			r.logger.Debug("pdns_discover_server_id_result", "server_id", id)
 			return id, nil
 		}
 	}
 
+	r.logger.Warn("pdns_discover_server_id_empty_result")
 	return "", nil
 }
 

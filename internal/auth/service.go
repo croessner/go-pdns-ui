@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -36,6 +37,7 @@ type InMemoryService struct {
 	username string
 	password string
 	oidc     *oidcProvider
+	logger   *slog.Logger
 	// showDefaultCredentialsHint indicates that local auth uses the startup fallback defaults.
 	showDefaultCredentialsHint bool
 
@@ -44,30 +46,52 @@ type InMemoryService struct {
 }
 
 func NewInMemoryService(ctx context.Context, username, password string, oidcConfig OIDCConfig) (*InMemoryService, error) {
-	oidcProvider, err := newOIDCProvider(ctx, oidcConfig)
+	return NewInMemoryServiceWithLogger(ctx, username, password, oidcConfig, nil)
+}
+
+func NewInMemoryServiceWithLogger(ctx context.Context, username, password string, oidcConfig OIDCConfig, logger *slog.Logger) (*InMemoryService, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger = logger.With("component", "auth")
+
+	oidcProvider, err := newOIDCProvider(ctx, oidcConfig, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	return &InMemoryService{
+	service := &InMemoryService{
 		username: strings.TrimSpace(username),
 		password: password,
 		oidc:     oidcProvider,
+		logger:   logger,
 		// Constructor with explicit credentials should not advertise defaults.
 		showDefaultCredentialsHint: false,
 		sessions:                   make(map[string]Session),
 		flows:                      make(map[string]oidcFlow),
-	}, nil
+	}
+
+	service.logger.Info(
+		"auth_service_initialized",
+		"oidc_enabled", service.oidc != nil,
+		"oidc_introspection_auth_method", oidcConfig.effectiveIntrospectionAuthMethod(),
+	)
+
+	return service, nil
 }
 
 func NewInMemoryServiceFromEnv(ctx context.Context) (*InMemoryService, error) {
+	return NewInMemoryServiceFromEnvWithLogger(ctx, nil)
+}
+
+func NewInMemoryServiceFromEnvWithLogger(ctx context.Context, logger *slog.Logger) (*InMemoryService, error) {
 	_, usernameIsSet := os.LookupEnv("GO_PDNS_UI_USERNAME")
 	_, passwordIsSet := os.LookupEnv("GO_PDNS_UI_PASSWORD")
 	username := getenvOrDefault("GO_PDNS_UI_USERNAME", "admin")
 	password := getenvOrDefault("GO_PDNS_UI_PASSWORD", "admin")
 	oidcConfig := LoadOIDCConfigFromEnv()
 
-	service, err := NewInMemoryService(ctx, username, password, oidcConfig)
+	service, err := NewInMemoryServiceWithLogger(ctx, username, password, oidcConfig, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +103,7 @@ func NewInMemoryServiceFromEnv(ctx context.Context) (*InMemoryService, error) {
 
 func (s *InMemoryService) LoginWithPassword(username, password string) (Session, error) {
 	if strings.TrimSpace(username) != s.username || password != s.password {
+		s.logger.Warn("password_login_failed", "username", strings.TrimSpace(username))
 		return Session{}, ErrInvalidCredentials
 	}
 
@@ -89,7 +114,9 @@ func (s *InMemoryService) LoginWithPassword(username, password string) (Session,
 		Role:       RoleAdmin,
 	}
 
-	return s.newSession(user), nil
+	session := s.newSession(user)
+	s.logger.Info("password_login_succeeded", "username", user.Username, "role", user.Role)
+	return session, nil
 }
 
 func (s *InMemoryService) OIDCEnabled() bool {
@@ -107,16 +134,19 @@ func (s *InMemoryService) BeginOIDCAuth() (string, error) {
 
 	state, err := randomBase64URL(32)
 	if err != nil {
+		s.logger.Error("oidc_state_generation_failed", "error", err)
 		return "", fmt.Errorf("create oidc state: %w", err)
 	}
 
 	verifier, err := randomBase64URL(64)
 	if err != nil {
+		s.logger.Error("oidc_pkce_verifier_generation_failed", "error", err)
 		return "", fmt.Errorf("create pkce verifier: %w", err)
 	}
 
 	nonce, err := randomBase64URL(32)
 	if err != nil {
+		s.logger.Error("oidc_nonce_generation_failed", "error", err)
 		return "", fmt.Errorf("create oidc nonce: %w", err)
 	}
 
@@ -132,6 +162,7 @@ func (s *InMemoryService) BeginOIDCAuth() (string, error) {
 	s.mu.Unlock()
 
 	codeChallenge := buildPKCEChallenge(verifier)
+	s.logger.Debug("oidc_auth_started")
 	return s.oidc.authCodeURL(state, nonce, codeChallenge), nil
 }
 
@@ -143,6 +174,7 @@ func (s *InMemoryService) CompleteOIDCAuth(ctx context.Context, state, code stri
 	state = strings.TrimSpace(state)
 	code = strings.TrimSpace(code)
 	if state == "" || code == "" {
+		s.logger.Warn("oidc_callback_invalid_payload")
 		return Session{}, ErrInvalidOIDCCode
 	}
 
@@ -152,31 +184,42 @@ func (s *InMemoryService) CompleteOIDCAuth(ctx context.Context, state, code stri
 	s.cleanupExpiredFlowsLocked()
 	s.mu.Unlock()
 	if !ok || flow.Expires.Before(time.Now()) {
+		s.logger.Warn("oidc_callback_invalid_or_expired_state")
 		return Session{}, ErrOIDCStateInvalid
 	}
 
 	token, err := s.oidc.exchange(ctx, code, flow.Verifier)
 	if err != nil {
+		s.logger.Warn("oidc_token_exchange_failed", "error", err)
+		return Session{}, err
+	}
+
+	if err := s.oidc.introspectAccessToken(ctx, token.AccessToken); err != nil {
+		s.logger.Warn("oidc_access_token_introspection_failed", "error", err)
 		return Session{}, err
 	}
 
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok || strings.TrimSpace(rawIDToken) == "" {
+		s.logger.Warn("oidc_id_token_missing")
 		return Session{}, ErrInvalidOIDCCode
 	}
 
 	claims, err := s.oidc.verifyIDToken(ctx, rawIDToken)
 	if err != nil {
+		s.logger.Warn("oidc_id_token_verify_failed", "error", err)
 		return Session{}, err
 	}
 
 	if flow.Nonce != claims.Nonce {
+		s.logger.Warn("oidc_nonce_mismatch")
 		return Session{}, ErrOIDCNonceInvalid
 	}
 
 	groups := parseGroups(claims.Groups)
 	role, err := mapGroupsToRole(groups, s.oidc.config.AdminGroup, s.oidc.config.UserGroup)
 	if err != nil {
+		s.logger.Warn("oidc_groups_rejected", "error", err)
 		return Session{}, err
 	}
 
@@ -200,7 +243,9 @@ func (s *InMemoryService) CompleteOIDCAuth(ctx context.Context, state, code stri
 		Role:       role,
 	}
 
-	return s.newSession(user), nil
+	session := s.newSession(user)
+	s.logger.Info("oidc_login_succeeded", "username", user.Username, "role", user.Role)
+	return session, nil
 }
 
 func (s *InMemoryService) GetSession(sessionID string) (Session, bool) {
@@ -234,6 +279,7 @@ func (s *InMemoryService) RevokeSession(sessionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, sessionID)
+	s.logger.Info("session_revoked")
 }
 
 func (s *InMemoryService) newSession(user User) Session {

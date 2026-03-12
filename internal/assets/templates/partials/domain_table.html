@@ -6,6 +6,9 @@
         <tr>
           <th>{{index .L "domain_name"}}</th>
           <th>{{index .L "zone_kind"}}</th>
+          {{if .AccessControlEnabled}}
+          <th>{{index .L "company"}}</th>
+          {{end}}
           <th>{{index .L "dnssec"}}</th>
           <th class="text-right">{{index .L "actions"}}</th>
         </tr>
@@ -17,7 +20,7 @@
             <button
               class="link link-primary font-semibold"
               data-zone-select="1"
-              hx-get="/zones/{{pathEscape .Name}}/editor{{if $.SelectedTemplate}}?template={{pathEscape $.SelectedTemplate.Name}}&{{else}}?{{end}}q={{pathEscape $.ZoneQuery}}&page={{$.ZonePage}}"
+              hx-get="/zones/{{pathEscape .Name}}/editor{{if $.SelectedTemplate}}?template={{pathEscape $.SelectedTemplate.Name}}&{{else}}?{{end}}q={{pathEscape $.ZoneQuery}}&page={{$.ZonePage}}&tab={{$.ActiveTab}}"
               hx-target="#zone-editor"
               hx-swap="outerHTML"
             >
@@ -35,6 +38,16 @@
             <span class="badge badge-accent badge-outline whitespace-nowrap px-3 h-auto py-2">{{index $.L "reverse_v6_zone_short"}}</span>
             {{end}}
           </td>
+          {{if $.AccessControlEnabled}}
+          <td>
+            {{$companyName := index $.ZoneCompanyNameByZone .Name}}
+            {{if $companyName}}
+            <span class="badge badge-outline">{{ $companyName }}</span>
+            {{else}}
+            <span class="opacity-60 text-sm">{{index $.L "unassigned"}}</span>
+            {{end}}
+          </td>
+          {{end}}
           <td>
             {{if .DNSSECEnabled}}
             <span class="badge badge-success">{{index $.L "enabled"}}</span>
@@ -49,14 +62,15 @@
               hx-target="#workspace"
               hx-swap="outerHTML"
               class="inline"
+              hx-confirm="{{index $.L "confirm_delete_zone"}}"
             >
               <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
               <input type="hidden" name="q" value="{{$.ZoneQuery}}">
               <input type="hidden" name="page" value="{{$.ZonePage}}">
+              <input type="hidden" name="tab" value="{{$.ActiveTab}}">
               <button
                 type="submit"
                 class="btn btn-error btn-xs"
-                hx-confirm="{{index $.L "confirm_delete_zone"}}"
               >
                 {{index $.L "delete"}}
               </button>
@@ -66,7 +80,7 @@
         </tr>
         {{else}}
         <tr>
-          <td colspan="4" class="text-center opacity-70 py-8">{{index .L "no_domains"}}</td>
+          <td colspan="{{if .AccessControlEnabled}}5{{else}}4{{end}}" class="text-center opacity-70 py-8">{{index .L "no_domains"}}</td>
         </tr>
         {{end}}
       </tbody>
@@ -81,6 +95,7 @@
         <input type="hidden" name="page" value="{{.ZonePrevPage}}">
         <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
         <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+        <input type="hidden" name="tab" value="{{.ActiveTab}}">
         <button type="submit" class="btn btn-sm" {{if not .ZoneHasPrev}}disabled{{end}}>{{index .L "previous_page"}}</button>
       </form>
       <button type="button" class="btn btn-sm join-item btn-ghost pointer-events-none">{{printf "%d / %d" .ZonePage .ZoneTotalPages}}</button>
@@ -89,6 +104,7 @@
         <input type="hidden" name="page" value="{{.ZoneNextPage}}">
         <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
         <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+        <input type="hidden" name="tab" value="{{.ActiveTab}}">
         <button type="submit" class="btn btn-sm" {{if not .ZoneHasNext}}disabled{{end}}>{{index .L "next_page"}}</button>
       </form>
     </div>

@@ -1,0 +1,106 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  GOFLAGS: -mod=vendor
+
+jobs:
+  build-artifact:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version: 1.26.x
+
+      - name: Build and package artifact
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          COMMIT="${GITHUB_SHA:0:8}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          ASSET="go-pdns-ui-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "dist/${ASSET}"
+
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -trimpath \
+              -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" \
+              -o "dist/${ASSET}/go-pdns-ui" \
+              ./cmd/go-pdns-ui
+
+          cp README.md "dist/${ASSET}/README.md"
+          (cd dist && tar czf "${ASSET}.tar.gz" "${ASSET}")
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: artifact-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/go-pdns-ui-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    needs: build-artifact
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Create release with generated notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release ${{ github.ref_name }} already exists."
+            exit 0
+          fi
+
+          gh release create "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --verify-tag \
+            --generate-notes \
+            --fail-on-no-commits \
+            --latest
+
+  upload-release:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: artifact-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --clobber \
+            dist/go-pdns-ui-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz

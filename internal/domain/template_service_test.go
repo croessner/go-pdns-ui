@@ -29,7 +29,7 @@ func TestTemplateServiceCreateAndEditRecord(t *testing.T) {
 		t.Fatalf("create template failed: %v", err)
 	}
 
-	err = svc.SaveTemplateRecord(ctx, "Forward Basic", "@", "SOA", Record{
+	err = svc.SaveTemplateRecord(ctx, "Forward Basic", "", "", Record{
 		Name:    "www",
 		Type:    "a",
 		TTL:     300,
@@ -37,6 +37,16 @@ func TestTemplateServiceCreateAndEditRecord(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("save template record failed: %v", err)
+	}
+
+	err = svc.SaveTemplateRecord(ctx, "Forward Basic", "@", "SOA", Record{
+		Name:    "@",
+		Type:    "SOA",
+		TTL:     7200,
+		Content: "ns1.{{ZONE_NAME}} hostmaster.{{ZONE_NAME}} 2 10800 3600 604800 3600",
+	})
+	if err != nil {
+		t.Fatalf("update SOA template record failed: %v", err)
 	}
 
 	tpl, err := svc.GetTemplate(ctx, "Forward Basic")
@@ -121,5 +131,76 @@ func TestTemplateServiceValidatesSRVRecord(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalidRec) {
 		t.Fatalf("expected malformed SRV to fail validation, got %v", err)
+	}
+}
+
+func TestCreateTemplateSeedsDefaultRecordsByKind(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	svc := NewInMemoryZoneTemplateService(nil)
+
+	if err := svc.CreateTemplate(ctx, ZoneTemplate{
+		Name: "Forward Empty",
+		Kind: ZoneForward,
+	}); err != nil {
+		t.Fatalf("create forward template failed: %v", err)
+	}
+
+	forwardTpl, err := svc.GetTemplate(ctx, "Forward Empty")
+	if err != nil {
+		t.Fatalf("get forward template failed: %v", err)
+	}
+	if len(forwardTpl.Records) < 2 {
+		t.Fatalf("expected forward defaults, got %d records", len(forwardTpl.Records))
+	}
+
+	if err := svc.CreateTemplate(ctx, ZoneTemplate{
+		Name: "Reverse Empty",
+		Kind: ZoneReverseV4,
+	}); err != nil {
+		t.Fatalf("create reverse template failed: %v", err)
+	}
+
+	reverseTpl, err := svc.GetTemplate(ctx, "Reverse Empty")
+	if err != nil {
+		t.Fatalf("get reverse template failed: %v", err)
+	}
+
+	hasPTR := false
+	for _, rec := range reverseTpl.Records {
+		if rec.Type == "PTR" {
+			hasPTR = true
+			break
+		}
+	}
+	if !hasPTR {
+		t.Fatalf("expected reverse template to include PTR placeholder record")
+	}
+}
+
+func TestDeleteTemplateRecordRejectsSOA(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	svc := NewInMemoryZoneTemplateService(nil)
+	if err := svc.CreateTemplate(ctx, ZoneTemplate{
+		Name: "SOA Protected",
+		Kind: ZoneForward,
+		Records: []Record{
+			{
+				Name:    "@",
+				Type:    "SOA",
+				TTL:     3600,
+				Content: "ns1.{{ZONE_NAME}} hostmaster.{{ZONE_NAME}} 1 10800 3600 604800 3600",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("create template failed: %v", err)
+	}
+
+	err := svc.DeleteTemplateRecord(ctx, "SOA Protected", "@", "SOA")
+	if !errors.Is(err, ErrInvalidRec) {
+		t.Fatalf("expected ErrInvalidRec when deleting SOA, got %v", err)
 	}
 }

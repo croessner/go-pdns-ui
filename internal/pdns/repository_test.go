@@ -134,8 +134,8 @@ func TestListZonesFallsBackToDiscoveredServerID(t *testing.T) {
 		BaseURL: server.URL,
 		APIKey:  "test",
 		Timeout: 0,
-	})
-	repo := NewRepository(client, "wrong")
+	}, nil)
+	repo := NewRepository(client, "wrong", nil)
 
 	zones, err := repo.ListZones(context.Background())
 	if err != nil {

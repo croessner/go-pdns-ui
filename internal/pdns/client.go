@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 )
 
 type APIError struct {
@@ -28,16 +30,22 @@ type Client struct {
 	baseURL string
 	apiKey  string
 	http    *http.Client
+	logger  *slog.Logger
 	mu      sync.RWMutex
 }
 
-func NewClient(config Config) *Client {
+func NewClient(config Config, logger *slog.Logger) *Client {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	return &Client{
 		baseURL: config.BaseURL,
 		apiKey:  config.APIKey,
 		http: &http.Client{
 			Timeout: config.Timeout,
 		},
+		logger: logger,
 	}
 }
 
@@ -67,6 +75,7 @@ func (c *Client) request(ctx context.Context, method, path string, body interfac
 	if body != nil {
 		marshaled, marshalErr := json.Marshal(body)
 		if marshalErr != nil {
+			c.logger.Error("pdns_request_marshal_failed", "method", method, "path", path, "error", marshalErr)
 			return fmt.Errorf("marshal request body: %w", marshalErr)
 		}
 		payload = marshaled
@@ -88,18 +97,29 @@ func (c *Client) request(ctx context.Context, method, path string, body interfac
 		return err
 	}
 
+	c.logger.Warn(
+		"pdns_request_retrying_with_api_v1",
+		"method", method,
+		"path", path,
+		"status", apiErr.Status,
+		"old_base_url", baseURL,
+		"new_base_url", retryBaseURL,
+	)
+
 	retryErr := c.requestOnce(ctx, retryBaseURL, method, path, payload, out)
 	if retryErr != nil {
 		return retryErr
 	}
 
 	c.setBaseURL(retryBaseURL)
+	c.logger.Info("pdns_base_url_updated", "base_url", retryBaseURL)
 	return nil
 }
 
 func (c *Client) requestOnce(ctx context.Context, baseURL, method, path string, payload []byte, out interface{}) error {
 	endpoint, err := url.JoinPath(baseURL, path)
 	if err != nil {
+		c.logger.Error("pdns_build_url_failed", "base_url", baseURL, "path", path, "error", err)
 		return fmt.Errorf("build url: %w", err)
 	}
 
@@ -110,6 +130,7 @@ func (c *Client) requestOnce(ctx context.Context, baseURL, method, path string, 
 
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, requestBody)
 	if err != nil {
+		c.logger.Error("pdns_build_request_failed", "method", method, "path", path, "error", err)
 		return fmt.Errorf("build request: %w", err)
 	}
 
@@ -119,14 +140,32 @@ func (c *Client) requestOnce(ctx context.Context, baseURL, method, path string, 
 		req.Header.Set("Content-Type", "application/json")
 	}
 
+	started := time.Now()
 	resp, err := c.http.Do(req)
+	durationMs := time.Since(started).Milliseconds()
 	if err != nil {
+		c.logger.Error(
+			"pdns_request_failed",
+			"method", method,
+			"path", path,
+			"endpoint", endpoint,
+			"duration_ms", durationMs,
+			"error", err,
+		)
 		return fmt.Errorf("execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		c.logger.Error(
+			"pdns_read_response_failed",
+			"method", method,
+			"path", path,
+			"status", resp.StatusCode,
+			"duration_ms", durationMs,
+			"error", err,
+		)
 		return fmt.Errorf("read response body: %w", err)
 	}
 
@@ -135,6 +174,20 @@ func (c *Client) requestOnce(ctx context.Context, baseURL, method, path string, 
 		if msg == "" {
 			msg = http.StatusText(resp.StatusCode)
 		}
+
+		attrs := []any{
+			"method", method,
+			"path", path,
+			"status", resp.StatusCode,
+			"duration_ms", durationMs,
+			"body", msg,
+		}
+		if resp.StatusCode >= 500 {
+			c.logger.Error("pdns_response_error", attrs...)
+		} else {
+			c.logger.Warn("pdns_response_error", attrs...)
+		}
+
 		return &APIError{
 			Method: method,
 			Path:   path,
@@ -144,13 +197,16 @@ func (c *Client) requestOnce(ctx context.Context, baseURL, method, path string, 
 	}
 
 	if out == nil || len(rawBody) == 0 {
+		c.logger.Debug("pdns_request_succeeded", "method", method, "path", path, "status", resp.StatusCode, "duration_ms", durationMs)
 		return nil
 	}
 
 	if err := json.Unmarshal(rawBody, out); err != nil {
+		c.logger.Error("pdns_decode_response_failed", "method", method, "path", path, "status", resp.StatusCode, "error", err)
 		return fmt.Errorf("decode response body: %w", err)
 	}
 
+	c.logger.Debug("pdns_request_succeeded", "method", method, "path", path, "status", resp.StatusCode, "duration_ms", durationMs)
 	return nil
 }
 

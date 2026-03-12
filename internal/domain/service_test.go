@@ -303,6 +303,63 @@ func TestSaveRecordAddressValidation(t *testing.T) {
 	}
 }
 
+func TestDeleteRecordRejectsSOA(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repo := NewInMemoryZoneRepository([]Zone{
+		{
+			Name: "example.org",
+			Kind: ZoneForward,
+			Records: []Record{
+				{
+					Name:    "@",
+					Type:    "SOA",
+					TTL:     3600,
+					Content: "ns1.example.org. hostmaster.example.org. 1 10800 3600 604800 3600",
+				},
+			},
+		},
+	})
+	svc := NewDraftZoneService(repo)
+
+	err := svc.DeleteRecord(ctx, "example.org", "@", "SOA")
+	if !errors.Is(err, ErrInvalidRec) {
+		t.Fatalf("expected ErrInvalidRec when deleting SOA, got %v", err)
+	}
+}
+
+func TestSaveRecordRejectsReplacingSOAWithOtherType(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repo := NewInMemoryZoneRepository([]Zone{
+		{
+			Name: "example.org",
+			Kind: ZoneForward,
+			Records: []Record{
+				{
+					Name:    "@",
+					Type:    "SOA",
+					TTL:     3600,
+					Content: "ns1.example.org. hostmaster.example.org. 1 10800 3600 604800 3600",
+				},
+			},
+		},
+	})
+	svc := NewDraftZoneService(repo)
+
+	err := svc.SaveRecord(ctx, "example.org", "@", "SOA", Record{
+		Name:    "www",
+		Type:    "A",
+		TTL:     300,
+		Content: "192.0.2.10",
+	})
+	if !errors.Is(err, ErrInvalidRec) {
+		t.Fatalf("expected ErrInvalidRec when replacing SOA, got %v", err)
+	}
+}
+
 func findRecord(records []Record, name, recordType string) (Record, bool) {
 	for _, record := range records {
 		if record.Name == name && record.Type == recordType {
