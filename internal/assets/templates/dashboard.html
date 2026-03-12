@@ -641,6 +641,17 @@
       scrollTopButton.classList.add("opacity-90");
     }
 
+    function setActiveZoneSelection(activeSource) {
+      document.querySelectorAll("[data-zone-select='1']").forEach((zoneButton) => {
+        zoneButton.classList.remove("btn-primary");
+        zoneButton.setAttribute("aria-current", "false");
+      });
+
+      if (!activeSource) return;
+      activeSource.classList.add("btn-primary");
+      activeSource.setAttribute("aria-current", "true");
+    }
+
     if (scrollTopButton) {
       scrollTopButton.addEventListener("click", () => {
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -769,6 +780,7 @@
       if (!target || target.id !== "zone-editor" || !trigger) return;
       const source = trigger.closest ? trigger.closest("[data-zone-select='1']") : null;
       if (!source) return;
+      setActiveZoneSelection(source);
       requestAnimationFrame(() => {
         const currentEditor = document.getElementById("zone-editor");
         if (!currentEditor) return;

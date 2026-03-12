@@ -18,7 +18,7 @@
         <tr class="{{if and $.SelectedZone (eq $.SelectedZone.Name .Name)}}bg-base-200{{end}} hover">
           <td>
             <button
-              class="{{if and $.SelectedZone (eq $.SelectedZone.Name .Name)}}btn btn-soft btn-primary btn-sm normal-case justify-start font-semibold px-2{{else}}btn btn-ghost btn-sm normal-case justify-start font-semibold px-2{{end}}"
+              class="{{if and $.SelectedZone (eq $.SelectedZone.Name .Name)}}btn btn-soft btn-primary btn-sm normal-case justify-start font-semibold px-2{{else}}btn btn-soft btn-sm normal-case justify-start font-semibold px-2{{end}}"
               data-zone-select="1"
               hx-get="/zones/{{pathEscape .Name}}/editor{{if $.SelectedTemplate}}?template={{pathEscape $.SelectedTemplate.Name}}&{{else}}?{{end}}q={{pathEscape $.ZoneQuery}}&page={{$.ZonePage}}&tab={{$.ActiveTab}}"
               hx-target="#zone-editor"

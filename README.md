@@ -18,6 +18,28 @@ Modern HTMX UI for administering PowerDNS zones with draft/apply workflow.
 - Dark mode toggle
 - Multi-language UI (`de`, `en`) via JSON locale files
 
+## Screenshots
+
+### Login
+
+![Login](docs/screenshots/01-login.png)
+
+### Zones overview
+
+![Zones overview](docs/screenshots/02-zones-overview.png)
+
+### Zone editor
+
+![Zone editor](docs/screenshots/03-zone-editor.png)
+
+### Templates
+
+![Templates](docs/screenshots/04-templates-tab.png)
+
+### Access control
+
+![Access control](docs/screenshots/05-access-control.png)
+
 ## Configuration
 
 ### Server
