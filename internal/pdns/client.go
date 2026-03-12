@@ -97,7 +97,7 @@ func (c *Client) request(ctx context.Context, method, path string, body interfac
 		return err
 	}
 
-	c.logger.Warn(
+	c.logger.Info(
 		"pdns_request_retrying_with_api_v1",
 		"method", method,
 		"path", path,
@@ -184,6 +184,8 @@ func (c *Client) requestOnce(ctx context.Context, baseURL, method, path string, 
 		}
 		if resp.StatusCode >= 500 {
 			c.logger.Error("pdns_response_error", attrs...)
+		} else if shouldLogExpectedRetry(path, resp.StatusCode, baseURL) {
+			c.logger.Debug("pdns_response_error_expected_retry", attrs...)
 		} else {
 			c.logger.Warn("pdns_response_error", attrs...)
 		}
@@ -229,6 +231,15 @@ func shouldRetryWithAPIV1(path string, status int) bool {
 
 	normalized := "/" + strings.TrimLeft(strings.TrimSpace(path), "/")
 	return normalized == "/servers" || strings.HasPrefix(normalized, "/servers/")
+}
+
+func shouldLogExpectedRetry(path string, status int, baseURL string) bool {
+	if !shouldRetryWithAPIV1(path, status) {
+		return false
+	}
+
+	retryBaseURL, ok := withAPIV1Suffix(baseURL)
+	return ok && retryBaseURL != baseURL
 }
 
 func withAPIV1Suffix(baseURL string) (string, bool) {

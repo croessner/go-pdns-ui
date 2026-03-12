@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -40,6 +41,44 @@ func TestNormalizeIntrospectionURLRejectsInvalidURL(t *testing.T) {
 
 	if _, err := normalizeIntrospectionURL("issuer.example/introspect"); err == nil {
 		t.Fatalf("expected invalid URL to fail")
+	}
+}
+
+func TestResolveIntrospectionURLPrefersConfig(t *testing.T) {
+	t.Parallel()
+
+	introspectionURL, source, err := resolveIntrospectionURL("https://config.example/introspect", "https://discovery.example/introspect")
+	if err != nil {
+		t.Fatalf("expected config URL to resolve, got %v", err)
+	}
+	if introspectionURL != "https://config.example/introspect" {
+		t.Fatalf("unexpected introspection URL: %q", introspectionURL)
+	}
+	if source != "config" {
+		t.Fatalf("unexpected source: %q", source)
+	}
+}
+
+func TestResolveIntrospectionURLFallsBackToDiscovery(t *testing.T) {
+	t.Parallel()
+
+	introspectionURL, source, err := resolveIntrospectionURL("", "https://discovery.example/introspect")
+	if err != nil {
+		t.Fatalf("expected discovery URL to resolve, got %v", err)
+	}
+	if introspectionURL != "https://discovery.example/introspect" {
+		t.Fatalf("unexpected introspection URL: %q", introspectionURL)
+	}
+	if source != "discovery" {
+		t.Fatalf("unexpected source: %q", source)
+	}
+}
+
+func TestResolveIntrospectionURLFailsWhenMissingEverywhere(t *testing.T) {
+	t.Parallel()
+
+	if _, _, err := resolveIntrospectionURL("", ""); err == nil {
+		t.Fatalf("expected missing introspection endpoint to fail")
 	}
 }
 
@@ -164,5 +203,57 @@ func TestIntrospectAccessTokenRejectsClientIDMismatch(t *testing.T) {
 	err := provider.introspectAccessToken(t.Context(), "token-123")
 	if !errors.Is(err, ErrOIDCAccessTokenInvalid) {
 		t.Fatalf("expected client-id-mismatch error, got %v", err)
+	}
+}
+
+func TestOIDCLogoutURLIncludesIDTokenHint(t *testing.T) {
+	t.Parallel()
+
+	provider := &oidcProvider{
+		config:        OIDCConfig{ClientID: "client"},
+		endSessionURL: "https://issuer.example/logout",
+	}
+
+	logoutURL, ok := provider.logoutURL("https://app.example/login", "id-token-123")
+	if !ok {
+		t.Fatalf("expected logout URL to be available")
+	}
+
+	parsedURL, err := url.Parse(logoutURL)
+	if err != nil {
+		t.Fatalf("parse logout URL failed: %v", err)
+	}
+	query := parsedURL.Query()
+	if got := query.Get("post_logout_redirect_uri"); got != "https://app.example/login" {
+		t.Fatalf("unexpected post logout redirect URL: %q", got)
+	}
+	if got := query.Get("id_token_hint"); got != "id-token-123" {
+		t.Fatalf("unexpected id_token_hint: %q", got)
+	}
+	if got := query.Get("client_id"); got != "" {
+		t.Fatalf("did not expect client_id when id_token_hint is present, got %q", got)
+	}
+}
+
+func TestOIDCLogoutURLFallsBackToClientIDWithoutIDTokenHint(t *testing.T) {
+	t.Parallel()
+
+	provider := &oidcProvider{
+		config:        OIDCConfig{ClientID: "client"},
+		endSessionURL: "https://issuer.example/logout",
+	}
+
+	logoutURL, ok := provider.logoutURL("https://app.example/login", "")
+	if !ok {
+		t.Fatalf("expected logout URL to be available")
+	}
+
+	parsedURL, err := url.Parse(logoutURL)
+	if err != nil {
+		t.Fatalf("parse logout URL failed: %v", err)
+	}
+	query := parsedURL.Query()
+	if got := query.Get("client_id"); got != "client" {
+		t.Fatalf("unexpected client_id: %q", got)
 	}
 }

@@ -26,6 +26,7 @@ type Service interface {
 	ShowDefaultCredentialsHint() bool
 	BeginOIDCAuth() (string, error)
 	CompleteOIDCAuth(ctx context.Context, state, code string) (Session, error)
+	BuildOIDCLogoutURL(session Session, postLogoutRedirectURL string) (string, bool)
 	GetSession(sessionID string) (Session, bool)
 	ValidateSession(sessionID string) bool
 	RevokeSession(sessionID string)
@@ -114,7 +115,7 @@ func (s *InMemoryService) LoginWithPassword(username, password string) (Session,
 		Role:       RoleAdmin,
 	}
 
-	session := s.newSession(user)
+	session := s.newSession(user, "")
 	s.logger.Info("password_login_succeeded", "username", user.Username, "role", user.Role)
 	return session, nil
 }
@@ -243,9 +244,20 @@ func (s *InMemoryService) CompleteOIDCAuth(ctx context.Context, state, code stri
 		Role:       role,
 	}
 
-	session := s.newSession(user)
+	session := s.newSession(user, rawIDToken)
 	s.logger.Info("oidc_login_succeeded", "username", user.Username, "role", user.Role)
 	return session, nil
+}
+
+func (s *InMemoryService) BuildOIDCLogoutURL(session Session, postLogoutRedirectURL string) (string, bool) {
+	if s.oidc == nil {
+		return "", false
+	}
+	if !strings.EqualFold(strings.TrimSpace(session.User.AuthSource), "oidc") {
+		return "", false
+	}
+
+	return s.oidc.logoutURL(postLogoutRedirectURL, session.IDToken)
 }
 
 func (s *InMemoryService) GetSession(sessionID string) (Session, bool) {
@@ -282,11 +294,12 @@ func (s *InMemoryService) RevokeSession(sessionID string) {
 	s.logger.Info("session_revoked")
 }
 
-func (s *InMemoryService) newSession(user User) Session {
+func (s *InMemoryService) newSession(user User, idToken string) Session {
 	sessionID := randomHex(24)
 	session := Session{
 		ID:        sessionID,
 		User:      user,
+		IDToken:   strings.TrimSpace(idToken),
 		CreatedAt: time.Now(),
 	}
 

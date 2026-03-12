@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"net/url"
 	"testing"
 )
 
@@ -107,5 +108,49 @@ func TestShowDefaultCredentialsHintFalseWhenEnvOverridesAreSet(t *testing.T) {
 	}
 	if svc.ShowDefaultCredentialsHint() {
 		t.Fatalf("expected default-credentials hint to be disabled when env credentials are set")
+	}
+}
+
+func TestBuildOIDCLogoutURLSkipsNonOIDCSessions(t *testing.T) {
+	t.Parallel()
+
+	svc, err := NewInMemoryService(context.Background(), "admin", "secret", OIDCConfig{})
+	if err != nil {
+		t.Fatalf("new auth service failed: %v", err)
+	}
+
+	logoutURL, ok := svc.BuildOIDCLogoutURL(Session{User: User{AuthSource: "password"}}, "https://app.example/login")
+	if ok || logoutURL != "" {
+		t.Fatalf("expected no OIDC logout URL for password session, got %q", logoutURL)
+	}
+}
+
+func TestBuildOIDCLogoutURLForOIDCSession(t *testing.T) {
+	t.Parallel()
+
+	svc := &InMemoryService{
+		oidc: &oidcProvider{
+			config:        OIDCConfig{ClientID: "client"},
+			endSessionURL: "https://issuer.example/logout",
+		},
+	}
+
+	logoutURL, ok := svc.BuildOIDCLogoutURL(
+		Session{
+			User:    User{AuthSource: "oidc"},
+			IDToken: "id-token-123",
+		},
+		"https://app.example/login",
+	)
+	if !ok {
+		t.Fatalf("expected OIDC logout URL")
+	}
+
+	parsedURL, err := url.Parse(logoutURL)
+	if err != nil {
+		t.Fatalf("parse logout URL failed: %v", err)
+	}
+	if got := parsedURL.Query().Get("id_token_hint"); got != "id-token-123" {
+		t.Fatalf("unexpected id_token_hint: %q", got)
 	}
 }

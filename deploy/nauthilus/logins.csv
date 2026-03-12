@@ -1,0 +1,3 @@
+username,password,client_ip,expected_ok,name,email,groups
+admin,admin,,true,Admin Demo,admin@example.test,admin
+user,user,,true,User Demo,user@example.test,user

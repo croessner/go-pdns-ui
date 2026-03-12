@@ -40,6 +40,7 @@ type oidcProvider struct {
 	verifier                *oidc.IDTokenVerifier
 	httpClient              *http.Client
 	introspectionURL        string
+	endSessionURL           string
 	introspectionAuthMethod string
 	logger                  *slog.Logger
 }
@@ -64,6 +65,12 @@ type oidcIntrospectionResponse struct {
 	ClientID string `json:"client_id"`
 }
 
+type oidcDiscoveryDocument struct {
+	oidc.ProviderConfig
+	IntrospectionEndpoint string `json:"introspection_endpoint"`
+	EndSessionEndpoint    string `json:"end_session_endpoint"`
+}
+
 func newOIDCProvider(ctx context.Context, config OIDCConfig, logger *slog.Logger) (*oidcProvider, error) {
 	if !config.Enabled() {
 		return nil, nil
@@ -80,16 +87,26 @@ func newOIDCProvider(ctx context.Context, config OIDCConfig, logger *slog.Logger
 	if err != nil {
 		return nil, fmt.Errorf("initialize oidc provider: %w", err)
 	}
-	introspectionURL, err := normalizeIntrospectionURL(config.IntrospectionURL)
-	if err != nil {
-		return nil, fmt.Errorf("initialize oidc provider: %w", err)
-	}
 
 	httpClient := newOIDCHTTPClient(config.InsecureSkipVerify)
-	provider, err := loadProviderFromDiscovery(ctx, discoveryURL, config.IssuerURL, httpClient, logger)
+	provider, discoveredIntrospectionURL, discoveredEndSessionURL, err := loadProviderFromDiscovery(ctx, discoveryURL, config.IssuerURL, httpClient, logger)
 	if err != nil {
 		return nil, fmt.Errorf("initialize oidc provider: %w", err)
 	}
+	introspectionURL, introspectionSource, err := resolveIntrospectionURL(config.IntrospectionURL, discoveredIntrospectionURL)
+	if err != nil {
+		return nil, fmt.Errorf("initialize oidc provider: %w", err)
+	}
+	endSessionURL, err := normalizeOptionalURL(discoveredEndSessionURL, "end-session URL")
+	if err != nil {
+		return nil, fmt.Errorf("initialize oidc provider: %w", err)
+	}
+	logger.Info(
+		"oidc_endpoints_resolved",
+		"introspection_source", introspectionSource,
+		"introspection_url", introspectionURL,
+		"end_session_url", endSessionURL,
+	)
 
 	oauthConfig := oauth2.Config{
 		ClientID:     config.ClientID,
@@ -109,6 +126,7 @@ func newOIDCProvider(ctx context.Context, config OIDCConfig, logger *slog.Logger
 		verifier:                verifier,
 		httpClient:              httpClient,
 		introspectionURL:        introspectionURL,
+		endSessionURL:           endSessionURL,
 		introspectionAuthMethod: config.effectiveIntrospectionAuthMethod(),
 		logger:                  logger,
 	}, nil
@@ -132,18 +150,54 @@ func normalizeDiscoveryURL(rawURL string) (string, error) {
 }
 
 func normalizeIntrospectionURL(rawURL string) (string, error) {
-	parsedURL, err := url.Parse(strings.TrimSpace(rawURL))
+	endpointURL, err := normalizeOptionalURL(rawURL, "introspection URL")
 	if err != nil {
-		return "", fmt.Errorf("parse introspection URL: %w", err)
+		return "", err
+	}
+	if endpointURL == "" {
+		return "", errors.New("introspection URL must include scheme and host")
+	}
+	return endpointURL, nil
+}
+
+func resolveIntrospectionURL(configURL, discoveredURL string) (string, string, error) {
+	if strings.TrimSpace(configURL) != "" {
+		introspectionURL, err := normalizeIntrospectionURL(configURL)
+		if err != nil {
+			return "", "", err
+		}
+		return introspectionURL, "config", nil
+	}
+
+	if strings.TrimSpace(discoveredURL) != "" {
+		introspectionURL, err := normalizeIntrospectionURL(discoveredURL)
+		if err != nil {
+			return "", "", err
+		}
+		return introspectionURL, "discovery", nil
+	}
+
+	return "", "", errors.New("oidc introspection endpoint missing in config and discovery metadata")
+}
+
+func normalizeOptionalURL(rawURL, endpointName string) (string, error) {
+	trimmedURL := strings.TrimSpace(rawURL)
+	if trimmedURL == "" {
+		return "", nil
+	}
+
+	parsedURL, err := url.Parse(trimmedURL)
+	if err != nil {
+		return "", fmt.Errorf("parse %s: %w", endpointName, err)
 	}
 	if parsedURL.Scheme == "" || parsedURL.Host == "" {
-		return "", errors.New("introspection URL must include scheme and host")
+		return "", fmt.Errorf("%s must include scheme and host", endpointName)
 	}
 
 	return parsedURL.String(), nil
 }
 
-func loadProviderFromDiscovery(ctx context.Context, discoveryURL, issuerOverride string, httpClient *http.Client, logger *slog.Logger) (*oidc.Provider, error) {
+func loadProviderFromDiscovery(ctx context.Context, discoveryURL, issuerOverride string, httpClient *http.Client, logger *slog.Logger) (*oidc.Provider, string, string, error) {
 	client := http.DefaultClient
 	providerCtx := ctx
 	if httpClient != nil {
@@ -153,7 +207,7 @@ func loadProviderFromDiscovery(ctx context.Context, discoveryURL, issuerOverride
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build oidc discovery request: %w", err)
+		return nil, "", "", fmt.Errorf("build oidc discovery request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 
@@ -162,14 +216,14 @@ func loadProviderFromDiscovery(ctx context.Context, discoveryURL, issuerOverride
 	durationMs := time.Since(started).Milliseconds()
 	if err != nil {
 		logger.Error("oidc_discovery_request_failed", "discovery_url", discoveryURL, "duration_ms", durationMs, "error", err)
-		return nil, fmt.Errorf("oidc discovery request failed: %w", err)
+		return nil, "", "", fmt.Errorf("oidc discovery request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		logger.Error("oidc_discovery_read_failed", "discovery_url", discoveryURL, "duration_ms", durationMs, "error", err)
-		return nil, fmt.Errorf("read oidc discovery response: %w", err)
+		return nil, "", "", fmt.Errorf("read oidc discovery response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		msg := strings.TrimSpace(string(body))
@@ -177,37 +231,50 @@ func loadProviderFromDiscovery(ctx context.Context, discoveryURL, issuerOverride
 			msg = http.StatusText(resp.StatusCode)
 		}
 		logger.Error("oidc_discovery_http_error", "discovery_url", discoveryURL, "status", resp.StatusCode, "duration_ms", durationMs, "body", msg)
-		return nil, fmt.Errorf("oidc discovery failed with status %d", resp.StatusCode)
+		return nil, "", "", fmt.Errorf("oidc discovery failed with status %d", resp.StatusCode)
 	}
 
-	var providerConfig oidc.ProviderConfig
-	if err := json.Unmarshal(body, &providerConfig); err != nil {
+	var discoveryDocument oidcDiscoveryDocument
+	if err := json.Unmarshal(body, &discoveryDocument); err != nil {
 		logger.Error("oidc_discovery_decode_failed", "discovery_url", discoveryURL, "duration_ms", durationMs, "error", err)
-		return nil, fmt.Errorf("decode oidc discovery response: %w", err)
+		return nil, "", "", fmt.Errorf("decode oidc discovery response: %w", err)
 	}
+	providerConfig := discoveryDocument.ProviderConfig
 
 	if strings.TrimSpace(providerConfig.IssuerURL) == "" || strings.TrimSpace(providerConfig.AuthURL) == "" ||
 		strings.TrimSpace(providerConfig.TokenURL) == "" || strings.TrimSpace(providerConfig.JWKSURL) == "" {
-		return nil, errors.New("oidc discovery response is missing required endpoints")
+		return nil, "", "", errors.New("oidc discovery response is missing required endpoints")
 	}
 
-	if strings.TrimSpace(issuerOverride) != "" {
-		logger.Warn(
-			"oidc_issuer_override_configured",
-			"discovery_issuer", providerConfig.IssuerURL,
-			"issuer_override", strings.TrimSpace(issuerOverride),
-		)
-		providerConfig.IssuerURL = strings.TrimSpace(issuerOverride)
+	override := strings.TrimSpace(issuerOverride)
+	if override != "" {
+		discoveryIssuer := strings.TrimSpace(providerConfig.IssuerURL)
+		if strings.EqualFold(discoveryIssuer, override) {
+			logger.Info(
+				"oidc_issuer_override_matches_discovery",
+				"discovery_issuer", providerConfig.IssuerURL,
+				"issuer_override", override,
+			)
+		} else {
+			logger.Warn(
+				"oidc_issuer_override_configured",
+				"discovery_issuer", providerConfig.IssuerURL,
+				"issuer_override", override,
+			)
+		}
+		providerConfig.IssuerURL = override
 	}
 
 	logger.Info(
 		"oidc_discovery_loaded",
 		"discovery_url", discoveryURL,
 		"issuer", providerConfig.IssuerURL,
+		"introspection_endpoint", strings.TrimSpace(discoveryDocument.IntrospectionEndpoint),
+		"end_session_endpoint", strings.TrimSpace(discoveryDocument.EndSessionEndpoint),
 		"duration_ms", durationMs,
 	)
 
-	return providerConfig.NewProvider(providerCtx), nil
+	return providerConfig.NewProvider(providerCtx), discoveryDocument.IntrospectionEndpoint, discoveryDocument.EndSessionEndpoint, nil
 }
 
 func newOIDCHTTPClient(insecureSkipVerify bool) *http.Client {
@@ -358,6 +425,34 @@ func (p *oidcProvider) introspectAccessToken(ctx context.Context, accessToken st
 
 	logger.Info("oidc_introspection_succeeded", "duration_ms", durationMS)
 	return nil
+}
+
+func (p *oidcProvider) logoutURL(postLogoutRedirectURL, idTokenHint string) (string, bool) {
+	endSessionURL := strings.TrimSpace(p.endSessionURL)
+	if endSessionURL == "" {
+		return "", false
+	}
+
+	parsedURL, err := url.Parse(endSessionURL)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		if p.logger != nil {
+			p.logger.Warn("oidc_end_session_endpoint_invalid", "end_session_url", endSessionURL, "error", err)
+		}
+		return "", false
+	}
+
+	query := parsedURL.Query()
+	if redirectURL := strings.TrimSpace(postLogoutRedirectURL); redirectURL != "" {
+		query.Set("post_logout_redirect_uri", redirectURL)
+	}
+	if hint := strings.TrimSpace(idTokenHint); hint != "" {
+		query.Set("id_token_hint", hint)
+	} else if clientID := strings.TrimSpace(p.config.ClientID); clientID != "" {
+		query.Set("client_id", clientID)
+	}
+
+	parsedURL.RawQuery = query.Encode()
+	return parsedURL.String(), true
 }
 
 func buildPKCEChallenge(verifier string) string {

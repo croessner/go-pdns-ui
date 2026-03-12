@@ -163,6 +163,26 @@ func TestIsHXRequest(t *testing.T) {
 	}
 }
 
+func TestRequestIsSecure(t *testing.T) {
+	t.Parallel()
+
+	httpsReq := httptest.NewRequest("GET", "https://ui.example.test/", nil)
+	if !requestIsSecure(httpsReq) {
+		t.Fatalf("expected HTTPS request to be secure")
+	}
+
+	proxyReq := httptest.NewRequest("GET", "http://ui.example.test/", nil)
+	proxyReq.Header.Set("X-Forwarded-Proto", "https")
+	if !requestIsSecure(proxyReq) {
+		t.Fatalf("expected forwarded HTTPS request to be secure")
+	}
+
+	httpReq := httptest.NewRequest("GET", "http://ui.example.test/", nil)
+	if requestIsSecure(httpReq) {
+		t.Fatalf("expected plain HTTP request to be insecure")
+	}
+}
+
 func TestCanEditZones(t *testing.T) {
 	t.Parallel()
 

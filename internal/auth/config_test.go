@@ -2,18 +2,17 @@ package auth
 
 import "testing"
 
-func TestOIDCConfigEnabledRequiresDiscoveryURL(t *testing.T) {
+func TestOIDCConfigEnabledWithoutIntrospectionURL(t *testing.T) {
 	t.Parallel()
 
 	config := OIDCConfig{
-		DiscoveryURL:     "https://issuer.example/.well-known/openid-configuration",
-		IntrospectionURL: "https://issuer.example/introspect",
-		ClientID:         "client",
-		RedirectURL:      "http://localhost:8080/auth/oidc/callback",
+		DiscoveryURL: "https://issuer.example/.well-known/openid-configuration",
+		ClientID:     "client",
+		RedirectURL:  "http://localhost:8080/auth/oidc/callback",
 	}
 
 	if !config.Enabled() {
-		t.Fatalf("expected config to be enabled when discovery URL is set")
+		t.Fatalf("expected config to be enabled without explicit introspection URL")
 	}
 }
 

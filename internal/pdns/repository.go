@@ -38,7 +38,6 @@ func (r *Repository) ListZones(ctx context.Context) ([]domain.Zone, error) {
 	path := r.zonesPath()
 	if err := r.client.get(ctx, path, &zones); err != nil {
 		if isStatusNotFound(err) {
-			r.logger.Warn("pdns_list_zones_server_not_found", "server_id", r.getServerID(), "error", err)
 			fallbackServerID, resolveErr := r.discoverServerID(ctx)
 			if resolveErr == nil && fallbackServerID != "" && fallbackServerID != r.getServerID() {
 				r.logger.Info("pdns_server_id_discovered", "old_server_id", r.getServerID(), "new_server_id", fallbackServerID)
@@ -48,6 +47,14 @@ func (r *Repository) ListZones(ctx context.Context) ([]domain.Zone, error) {
 					return nil, mapRepositoryError(retryErr)
 				}
 			} else {
+				attrs := []any{"server_id", r.getServerID(), "error", err}
+				if resolveErr != nil {
+					attrs = append(attrs, "discover_error", resolveErr)
+				}
+				if fallbackServerID != "" {
+					attrs = append(attrs, "discovered_server_id", fallbackServerID)
+				}
+				r.logger.Warn("pdns_list_zones_server_not_found", attrs...)
 				return nil, mapRepositoryError(err)
 			}
 		} else {

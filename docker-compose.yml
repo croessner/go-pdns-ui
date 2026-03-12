@@ -16,6 +16,11 @@ services:
       timeout: 5s
       retries: 20
 
+  valkey:
+    image: valkey/valkey:7.2
+    container_name: go-pdns-ui-valkey
+    restart: unless-stopped
+
   pdns:
     image: powerdns/pdns-auth-49:latest
     container_name: go-pdns-ui-pdns
@@ -45,6 +50,36 @@ services:
       - "8053:53/udp"
       - "8081:8081"
 
+  nauthilus:
+    image: ghcr.io/croessner/nauthilus:v2.0.6
+    container_name: go-pdns-ui-nauthilus
+    restart: unless-stopped
+    depends_on:
+      valkey:
+        condition: service_started
+    environment:
+      TESTING_CSV: /etc/nauthilus/logins.csv
+    volumes:
+      - ./deploy/nauthilus/nauthilus.yml:/etc/nauthilus/nauthilus.yml:ro
+      - ./deploy/nauthilus/idp-signing-key.pem:/etc/nauthilus/idp-signing-key.pem:ro
+      - ./deploy/nauthilus/logins.csv:/etc/nauthilus/logins.csv:ro
+
+  proxy:
+    image: caddy:2-alpine
+    container_name: go-pdns-ui-proxy
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+      nauthilus:
+        condition: service_started
+    volumes:
+      - ./deploy/nauthilus-proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "8090:443"
+
   app:
     build:
       context: .
@@ -56,22 +91,35 @@ services:
         condition: service_healthy
       pdns:
         condition: service_started
+      nauthilus:
+        condition: service_started
+    extra_hosts:
+      - "127.0.0.1.nip.io:host-gateway"
     environment:
       GO_PDNS_UI_LISTEN_ADDRESS: :8080
       GO_PDNS_UI_LOG_LEVEL: INFO
       GO_PDNS_UI_USERNAME: admin
       GO_PDNS_UI_PASSWORD: admin
+      GO_PDNS_UI_AUTH_OIDC_ONLY: "false"
       GO_PDNS_UI_AUTHZ_MODE: company
       GO_PDNS_UI_DATABASE_URL: postgres://pdns:pdns@db:5432/pdns?sslmode=disable
       GO_PDNS_UI_DB_MAX_OPEN_CONNS: 10
       GO_PDNS_UI_DB_MAX_IDLE_CONNS: 5
       GO_PDNS_UI_DB_CONN_MAX_LIFETIME_SECONDS: 300
+      GO_PDNS_UI_OIDC_DISCOVERY_URL: https://127.0.0.1.nip.io:8090/.well-known/openid-configuration
+      GO_PDNS_UI_OIDC_INSECURE_SKIP_VERIFY: "true"
+      GO_PDNS_UI_OIDC_CLIENT_ID: go-pdns-ui
+      GO_PDNS_UI_OIDC_CLIENT_SECRET: go-pdns-ui-secret
+      GO_PDNS_UI_OIDC_REDIRECT_URL: https://ui.127.0.0.1.nip.io:8090/auth/oidc/callback
+      GO_PDNS_UI_OIDC_SCOPES: openid profile email groups
+      GO_PDNS_UI_OIDC_ADMIN_GROUP: admin
+      GO_PDNS_UI_OIDC_USER_GROUP: user
       GO_PDNS_API_URL: http://pdns:8081/api/v1
       GO_PDNS_API_KEY: ${PDNS_API_KEY:-change-me}
       GO_PDNS_SERVER_ID: localhost
       GO_PDNS_HTTP_TIMEOUT_SECONDS: 10
-    ports:
-      - "8080:8080"
 
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:

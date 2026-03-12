@@ -100,7 +100,7 @@ Logging:
 
 - `GO_PDNS_UI_OIDC_DISCOVERY_URL` (required; must be the full discovery endpoint `.../.well-known/openid-configuration`)
 - `GO_PDNS_UI_OIDC_ISSUER_URL` (optional override for issuer validation when discovery URL differs)
-- `GO_PDNS_UI_OIDC_INTROSPECTION_URL` (required for OIDC login; OAuth2 token introspection endpoint)
+- `GO_PDNS_UI_OIDC_INTROSPECTION_URL` (optional override for OAuth2 token introspection endpoint; when empty, `introspection_endpoint` from discovery is used)
 - `GO_PDNS_UI_OIDC_INTROSPECTION_AUTH_METHOD` (default: `client_secret_basic`; allowed: `client_secret_basic`, `client_secret_post`)
 - `GO_PDNS_UI_OIDC_INSECURE_SKIP_VERIFY` (optional, default `false`; only for local/dev with self-signed certs)
 - `GO_PDNS_UI_OIDC_CLIENT_ID`
@@ -113,7 +113,7 @@ Logging:
 OIDC login flow in this app:
 
 1. Authorization Code + PKCE login is completed.
-2. The returned `access_token` is sent to the configured introspection endpoint.
+2. The returned `access_token` is sent to the introspection endpoint (env override or discovery metadata).
 3. Login is accepted only when introspection returns `active=true`.
 4. If the introspection response contains `client_id`, it must match `GO_PDNS_UI_OIDC_CLIENT_ID`.
 5. After successful introspection, the ID token is verified and groups are mapped to `admin`/`user`; unmatched groups fall back to `viewer`.
@@ -122,6 +122,7 @@ Important discovery URL behavior:
 
 - The app does **not** append `/.well-known/openid-configuration` automatically.
 - `GO_PDNS_UI_OIDC_DISCOVERY_URL` must already contain that exact suffix.
+- If discovery contains `end_session_endpoint`, `/logout` redirects the browser there after local session revoke.
 
 ### PowerDNS API
 
@@ -144,7 +145,7 @@ Notes:
 
 - If OIDC variables are unset, local username/password login stays active.
 - With `GO_PDNS_UI_AUTH_OIDC_ONLY=true`, OIDC configuration is mandatory.
-- If OIDC is enabled, introspection must be configured; inactive tokens are rejected.
+- If OIDC is enabled, introspection must be available (via `GO_PDNS_UI_OIDC_INTROSPECTION_URL` or discovery metadata); inactive tokens are rejected.
 - If your IdP listens only on IPv4, prefer `127.0.0.1` over `localhost` in OIDC URLs.
 - If `GO_PDNS_API_URL` and `GO_PDNS_API_KEY` are unset, the app uses in-memory demo data.
 - In `company` mode, non-admin users without company+zone assignment will see an empty zone list.
@@ -229,6 +230,9 @@ The repository includes a full local stack in `docker-compose.yml`:
 - `app` (go-pdns-ui)
 - `pdns` (PowerDNS Authoritative API)
 - `db` (PostgreSQL for PowerDNS + go-pdns-ui access-control persistence)
+- `nauthilus` (`ghcr.io/croessner/nauthilus:v2.0.6`, OIDC IdP demo setup)
+- `proxy` (single Caddy TLS reverse proxy for `app` + `nauthilus`)
+- `valkey` (Redis-compatible store for Nauthilus sessions/tokens)
 
 Start:
 
@@ -238,8 +242,23 @@ docker compose up -d --build
 
 Open:
 
-- UI: `http://localhost:8080`
+- UI: `https://ui.127.0.0.1.nip.io:8090`
 - PowerDNS API endpoint: `http://localhost:8081/api/v1`
+- Nauthilus OIDC discovery: `https://127.0.0.1.nip.io:8090/.well-known/openid-configuration`
+
+Demo logins:
+
+- Local app login: `admin` / `admin`
+- OIDC login via Nauthilus:
+  - `admin` / `admin` (OIDC group `admin` -> app role `admin`)
+  - `user` / `user` (OIDC group `user` -> app role `user`)
+
+Notes for the integrated OIDC demo:
+
+- `app` is preconfigured with discovery/client/redirect values for the bundled Nauthilus service via the shared Caddy proxy.
+- Introspection endpoint and logout endpoint are discovered automatically from OIDC discovery metadata.
+- Nauthilus test users and role attributes are defined in `deploy/nauthilus/logins.csv`.
+- Nauthilus configuration is located at `deploy/nauthilus/nauthilus.yml`.
 
 Stop:
 

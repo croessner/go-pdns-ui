@@ -142,6 +142,7 @@ func NewHandler(
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /favicon.ico", h.withRequestLogging(h.favicon))
 	mux.HandleFunc("GET /login", h.withRequestLogging(h.loginPage))
 	mux.HandleFunc("POST /login/password", h.withRequestLogging(h.loginPassword))
 	mux.HandleFunc("GET /login/oidc/start", h.withRequestLogging(h.startOIDCLogin))
@@ -171,6 +172,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /access/companies/{company}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.deleteCompany)))
 	mux.HandleFunc("POST /access/memberships", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.updateMembership)))
 	mux.HandleFunc("POST /access/zones", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.updateZoneAssignment)))
+}
+
+func (h *Handler) favicon(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
@@ -230,7 +235,7 @@ func (h *Handler) loginPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.setSessionCookie(w, session.ID, r.TLS != nil)
+	h.setSessionCookie(w, session.ID, requestIsSecure(r))
 	h.logger.Info("password_login_succeeded", "username", username, "role", session.User.Role)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -309,18 +314,24 @@ func (h *Handler) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.setSessionCookie(w, session.ID, r.TLS != nil)
+	h.setSessionCookie(w, session.ID, requestIsSecure(r))
 	h.logger.Info("oidc_login_succeeded", "username", session.User.Username, "role", session.User.Role)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func (h *Handler) logout(w http.ResponseWriter, r *http.Request, _ auth.Session) {
+func (h *Handler) logout(w http.ResponseWriter, r *http.Request, session auth.Session) {
+	redirectTarget := "/login"
+	if oidcLogoutURL, ok := h.auth.BuildOIDCLogoutURL(session, absoluteURLForRequest(r, "/login")); ok {
+		redirectTarget = oidcLogoutURL
+		h.logger.Info("oidc_logout_redirect_started")
+	}
+
 	sessionID, _ := h.readSessionID(r)
 	h.auth.RevokeSession(sessionID)
 	h.clearSessionCookie(w)
 
 	h.logger.Info("session_revoked")
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	http.Redirect(w, r, redirectTarget, http.StatusSeeOther)
 }
 
 func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request, session auth.Session) {
@@ -1589,13 +1600,13 @@ func (h *Handler) requireAuth(next authedHandler) http.HandlerFunc {
 		}
 
 		if isHXRequest(r) {
-			h.logger.Warn("unauthorized_request", "path", r.URL.Path, "method", r.Method, "hx", true)
+			h.logUnauthorizedRequest(r, true)
 			w.Header().Set("HX-Redirect", "/login")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
-		h.logger.Warn("unauthorized_request", "path", r.URL.Path, "method", r.Method, "hx", false)
+		h.logUnauthorizedRequest(r, false)
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	}
 }
@@ -1617,6 +1628,71 @@ func (h *Handler) ensureZoneAccess(w http.ResponseWriter, r *http.Request, sessi
 
 func isHXRequest(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("HX-Request"), "true")
+}
+
+func absoluteURLForRequest(r *http.Request, path string) string {
+	normalizedPath := "/" + strings.TrimLeft(strings.TrimSpace(path), "/")
+
+	host := strings.TrimSpace(firstHeaderValue(r.Header.Get("X-Forwarded-Host")))
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
+	}
+	if host == "" {
+		return normalizedPath
+	}
+
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwardedProto := strings.TrimSpace(firstHeaderValue(r.Header.Get("X-Forwarded-Proto"))); forwardedProto != "" {
+		scheme = strings.ToLower(forwardedProto)
+	}
+
+	return (&url.URL{
+		Scheme: scheme,
+		Host:   host,
+		Path:   normalizedPath,
+	}).String()
+}
+
+func requestIsSecure(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+
+	forwardedProto := strings.TrimSpace(firstHeaderValue(r.Header.Get("X-Forwarded-Proto")))
+	return strings.EqualFold(forwardedProto, "https")
+}
+
+func firstHeaderValue(raw string) string {
+	if raw == "" {
+		return ""
+	}
+
+	parts := strings.Split(raw, ",")
+	return strings.TrimSpace(parts[0])
+}
+
+func (h *Handler) logUnauthorizedRequest(r *http.Request, hx bool) {
+	attrs := []any{"path", r.URL.Path, "method", r.Method, "hx", hx}
+	if isExpectedUnauthenticatedPath(r.URL.Path, r.Method) {
+		h.logger.Debug("unauthorized_request_expected", attrs...)
+		return
+	}
+	h.logger.Warn("unauthorized_request", attrs...)
+}
+
+func isExpectedUnauthenticatedPath(path, method string) bool {
+	normalizedPath := strings.TrimSpace(path)
+	switch normalizedPath {
+	case "/favicon.ico":
+		return method == http.MethodGet
+	case "/logout":
+		return method == http.MethodGet || method == http.MethodPost
+	default:
+		return false
+	}
 }
 
 func (h *Handler) requireRole(required auth.Role, next authedHandler) http.HandlerFunc {

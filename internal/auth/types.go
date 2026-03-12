@@ -22,5 +22,6 @@ type User struct {
 type Session struct {
 	ID        string
 	User      User
+	IDToken   string
 	CreatedAt time.Time
 }

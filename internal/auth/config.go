@@ -22,7 +22,7 @@ type OIDCConfig struct {
 }
 
 func (c OIDCConfig) Enabled() bool {
-	return c.DiscoveryURL != "" && c.ClientID != "" && c.RedirectURL != "" && c.IntrospectionURL != ""
+	return c.DiscoveryURL != "" && c.ClientID != "" && c.RedirectURL != ""
 }
 
 func LoadOIDCConfigFromEnv() OIDCConfig {
