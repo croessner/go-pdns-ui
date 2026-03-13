@@ -23,6 +23,7 @@
           <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
           <input type="hidden" name="page" value="{{.ZonePage}}">
+          <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
           <input type="hidden" name="tab" value="access">
           <label class="floating-label">
             <span>{{index .L "username"}}</span>
@@ -60,6 +61,7 @@
                     <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
                     <input type="hidden" name="q" value="{{$.ZoneQuery}}">
                     <input type="hidden" name="page" value="{{$.ZonePage}}">
+                    <input type="hidden" name="zone_assignment_page" value="{{$.ZoneAssignmentPage}}">
                     <input type="hidden" name="tab" value="access">
                     <button
                       type="submit"
@@ -85,15 +87,17 @@
       </div>
     </section>
 
-    <section class="space-y-3">
+    <section class="space-y-5">
       <h3 class="text-lg font-semibold">{{index .L "company_assignments"}}</h3>
-      <div class="grid gap-4 xl:grid-cols-3">
+      <div class="rounded-box border border-base-300/70 bg-base-200/30 p-4">
+        <div class="grid gap-4 xl:grid-cols-3">
         <form hx-post="/access/companies" hx-target="#workspace" hx-swap="outerHTML" class="grid gap-2">
           <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
           <input type="hidden" name="selected_zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
           <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
           <input type="hidden" name="page" value="{{.ZonePage}}">
+          <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
           <input type="hidden" name="tab" value="access">
           <label class="floating-label">
             <span>{{index .L "company_name"}}</span>
@@ -108,6 +112,7 @@
           <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
           <input type="hidden" name="page" value="{{.ZonePage}}">
+          <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
           <input type="hidden" name="tab" value="access">
           <label class="floating-label">
             <span>{{index .L "user"}}</span>
@@ -139,6 +144,7 @@
           <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
           <input type="hidden" name="page" value="{{.ZonePage}}">
+          <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
           <input type="hidden" name="tab" value="access">
           <label class="floating-label">
             <span>{{index .L "domain_name"}}</span>
@@ -169,10 +175,12 @@
           </label>
           <button type="submit" name="action" value="assign" class="btn btn-primary" {{if eq (len .ManageZones) 0}}disabled{{end}}>{{index .L "assign_zone"}}</button>
         </form>
+        </div>
       </div>
 
-      <div class="grid gap-4 xl:grid-cols-3">
-        <div class="overflow-x-auto rounded-box border border-base-300">
+      <div class="rounded-box border border-base-300/70 bg-base-200/20 p-4">
+        <div class="grid gap-5 xl:grid-cols-2">
+        <div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
           <table class="table table-zebra table-sm">
             <thead>
               <tr>
@@ -191,6 +199,7 @@
                     <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
                     <input type="hidden" name="q" value="{{$.ZoneQuery}}">
                     <input type="hidden" name="page" value="{{$.ZonePage}}">
+                    <input type="hidden" name="zone_assignment_page" value="{{$.ZoneAssignmentPage}}">
                     <input type="hidden" name="tab" value="access">
                     <button type="submit" class="btn btn-error btn-xs">{{index $.L "delete"}}</button>
                   </form>
@@ -205,7 +214,7 @@
           </table>
         </div>
 
-        <div class="overflow-x-auto rounded-box border border-base-300">
+        <div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
           <table class="table table-zebra table-sm">
             <thead>
               <tr>
@@ -228,7 +237,11 @@
           </table>
         </div>
 
-        <div class="overflow-x-auto rounded-box border border-base-300">
+        </div>
+      </div>
+
+      <div id="zone-assignment-table" class="space-y-3 rounded-box border border-base-300/70 bg-base-200/20 p-4">
+        <div class="overflow-x-auto rounded-box border border-base-300 bg-base-100 shadow-sm">
           <table class="table table-zebra table-sm">
             <thead>
               <tr>
@@ -249,9 +262,10 @@
                     <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
                     <input type="hidden" name="q" value="{{$.ZoneQuery}}">
                     <input type="hidden" name="page" value="{{$.ZonePage}}">
+                    <input type="hidden" name="zone_assignment_page" value="{{$.ZoneAssignmentPage}}">
                     <input type="hidden" name="tab" value="access">
                     <input type="hidden" name="zone_name" value="{{.ZoneName}}">
-                    <button type="submit" name="action" value="clear" class="btn btn-outline btn-xs">{{index $.L "clear_zone_assignment"}}</button>
+                    <button type="submit" name="action" value="clear" class="btn btn-outline btn-sm h-auto min-h-10 whitespace-normal leading-tight">{{index $.L "clear_zone_assignment"}}</button>
                   </form>
                 </td>
               </tr>
@@ -262,6 +276,31 @@
               {{end}}
             </tbody>
           </table>
+        </div>
+
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs opacity-70">{{printf "%s: %d" (index .L "zone_assignments_total") .ZoneAssignmentTotal}}</p>
+          <div class="join">
+            <form hx-get="/" hx-target="#workspace" hx-swap="outerHTML" class="join-item">
+              <input type="hidden" name="q" value="{{.ZoneQuery}}">
+              <input type="hidden" name="page" value="{{.ZonePage}}">
+              <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPrevPage}}">
+              <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
+              <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+              <input type="hidden" name="tab" value="access">
+              <button type="submit" class="btn btn-sm" {{if not .ZoneAssignmentHasPrev}}disabled{{end}}>{{index .L "previous_page"}}</button>
+            </form>
+            <button type="button" class="btn btn-sm join-item btn-ghost pointer-events-none">{{printf "%d / %d" .ZoneAssignmentPage .ZoneAssignmentTotalPages}}</button>
+            <form hx-get="/" hx-target="#workspace" hx-swap="outerHTML" class="join-item">
+              <input type="hidden" name="q" value="{{.ZoneQuery}}">
+              <input type="hidden" name="page" value="{{.ZonePage}}">
+              <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentNextPage}}">
+              <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
+              <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+              <input type="hidden" name="tab" value="access">
+              <button type="submit" class="btn btn-sm" {{if not .ZoneAssignmentHasNext}}disabled{{end}}>{{index .L "next_page"}}</button>
+            </form>
+          </div>
         </div>
       </div>
     </section>

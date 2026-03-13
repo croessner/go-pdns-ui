@@ -68,6 +68,7 @@
               <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
               <input type="hidden" name="q" value="{{$.ZoneQuery}}">
               <input type="hidden" name="page" value="{{$.ZonePage}}">
+              <input type="hidden" name="zone_assignment_page" value="{{$.ZoneAssignmentPage}}">
               <input type="hidden" name="tab" value="{{$.ActiveTab}}">
               <button
                 type="submit"
@@ -94,6 +95,7 @@
       <form hx-get="/" hx-target="#workspace" hx-swap="outerHTML" class="join-item">
         <input type="hidden" name="q" value="{{.ZoneQuery}}">
         <input type="hidden" name="page" value="{{.ZonePrevPage}}">
+        <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
         <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
         <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
         <input type="hidden" name="tab" value="{{.ActiveTab}}">
@@ -103,6 +105,7 @@
       <form hx-get="/" hx-target="#workspace" hx-swap="outerHTML" class="join-item">
         <input type="hidden" name="q" value="{{.ZoneQuery}}">
         <input type="hidden" name="page" value="{{.ZoneNextPage}}">
+        <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
         <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
         <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
         <input type="hidden" name="tab" value="{{.ActiveTab}}">

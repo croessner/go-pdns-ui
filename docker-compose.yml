@@ -51,7 +51,7 @@ services:
       - "8081:8081"
 
   nauthilus:
-    image: ghcr.io/croessner/nauthilus:v2.0.6
+    image: ghcr.io/croessner/nauthilus:v2.0.10
     container_name: go-pdns-ui-nauthilus
     restart: unless-stopped
     depends_on:

@@ -7,6 +7,7 @@
         <form hx-get="/" hx-target="#workspace" hx-swap="outerHTML" class="inline">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
           <input type="hidden" name="page" value="{{.ZonePage}}">
+          <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
           <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
           <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
           <input type="hidden" name="tab" value="zones">
@@ -15,6 +16,7 @@
         <form hx-get="/" hx-target="#workspace" hx-swap="outerHTML" class="inline">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
           <input type="hidden" name="page" value="{{.ZonePage}}">
+          <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
           <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
           <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
           <input type="hidden" name="tab" value="templates">
@@ -24,6 +26,7 @@
         <form hx-get="/" hx-target="#workspace" hx-swap="outerHTML" class="inline">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
           <input type="hidden" name="page" value="{{.ZonePage}}">
+          <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
           <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
           <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
           <input type="hidden" name="tab" value="access">
@@ -62,6 +65,7 @@
         <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
         <input type="hidden" name="q" value="{{.ZoneQuery}}">
         <input type="hidden" name="page" value="{{.ZonePage}}">
+        <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
         <input type="hidden" name="tab" value="{{.ActiveTab}}">
         <label class="floating-label sm:col-span-2">
           <span>{{index .L "domain_name"}}</span>
@@ -109,6 +113,7 @@
         <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
         <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
         <input type="hidden" name="page" value="1">
+        <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
         <input type="hidden" name="tab" value="{{.ActiveTab}}">
         <label class="floating-label">
           <span>{{index .L "zone_search"}}</span>
@@ -164,6 +169,7 @@
           <input type="hidden" name="selected_zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
           <input type="hidden" name="page" value="{{.ZonePage}}">
+          <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
           <input type="hidden" name="tab" value="{{.ActiveTab}}">
           <label class="floating-label sm:col-span-2">
             <span>{{index .L "template_name"}}</span>

@@ -21,12 +21,13 @@ import (
 )
 
 const (
-	sessionCookieName = "go_pdns_ui_session"
-	langCookieName    = "go_pdns_ui_lang"
-	zonesPerPage      = 10
-	tabZones          = "zones"
-	tabTemplates      = "templates"
-	tabAccess         = "access"
+	sessionCookieName      = "go_pdns_ui_session"
+	langCookieName         = "go_pdns_ui_lang"
+	zonesPerPage           = 10
+	zoneAssignmentsPerPage = 10
+	tabZones               = "zones"
+	tabTemplates           = "templates"
+	tabAccess              = "access"
 )
 
 type Handler struct {
@@ -57,46 +58,53 @@ type recordFormData struct {
 }
 
 type viewData struct {
-	L                     map[string]string
-	Lang                  string
-	Supported             []string
-	ShowLoginHint         bool
-	PasswordLoginEnabled  bool
-	Zones                 []domain.Zone
-	ZoneQuery             string
-	ZonePage              int
-	ZoneTotal             int
-	ZoneTotalPages        int
-	ZonePrevPage          int
-	ZoneNextPage          int
-	ZoneHasPrev           bool
-	ZoneHasNext           bool
-	SelectedZone          *domain.Zone
-	DraftDirty            bool
-	Templates             []domain.ZoneTemplate
-	SelectedTemplate      *domain.ZoneTemplate
-	ZoneRecordForm        recordFormData
-	TemplateRecordForm    recordFormData
-	ZoneDialogEditing     bool
-	TemplateDialogEditing bool
-	Error                 string
-	CSRFToken             string
-	CSPNonce              string
-	CurrentUser           *auth.User
-	CurrentPrincipalID    string
-	IsAdmin               bool
-	CanEditZones          bool
-	ActiveTab             string
-	OIDCEnabled           bool
-	AccessControlEnabled  bool
-	Companies             []access.Company
-	Principals            []access.Principal
-	CompanyMemberships    []access.CompanyMembership
-	ZoneAssignments       []access.ZoneAssignment
-	ManageZones           []domain.Zone
-	ZoneCompanyIDByZone   map[string]string
-	ZoneCompanyNameByZone map[string]string
-	AvailableRecordTypes  []string
+	L                        map[string]string
+	Lang                     string
+	Supported                []string
+	ShowLoginHint            bool
+	PasswordLoginEnabled     bool
+	Zones                    []domain.Zone
+	ZoneQuery                string
+	ZonePage                 int
+	ZoneTotal                int
+	ZoneTotalPages           int
+	ZonePrevPage             int
+	ZoneNextPage             int
+	ZoneHasPrev              bool
+	ZoneHasNext              bool
+	SelectedZone             *domain.Zone
+	DraftDirty               bool
+	Templates                []domain.ZoneTemplate
+	SelectedTemplate         *domain.ZoneTemplate
+	ZoneRecordForm           recordFormData
+	TemplateRecordForm       recordFormData
+	ZoneDialogEditing        bool
+	TemplateDialogEditing    bool
+	Error                    string
+	CSRFToken                string
+	CSPNonce                 string
+	CurrentUser              *auth.User
+	CurrentPrincipalID       string
+	IsAdmin                  bool
+	CanEditZones             bool
+	ActiveTab                string
+	OIDCEnabled              bool
+	AccessControlEnabled     bool
+	Companies                []access.Company
+	Principals               []access.Principal
+	CompanyMemberships       []access.CompanyMembership
+	ZoneAssignments          []access.ZoneAssignment
+	ZoneAssignmentPage       int
+	ZoneAssignmentTotal      int
+	ZoneAssignmentTotalPages int
+	ZoneAssignmentPrevPage   int
+	ZoneAssignmentNextPage   int
+	ZoneAssignmentHasPrev    bool
+	ZoneAssignmentHasNext    bool
+	ManageZones              []domain.Zone
+	ZoneCompanyIDByZone      map[string]string
+	ZoneCompanyNameByZone    map[string]string
+	AvailableRecordTypes     []string
 }
 
 type HandlerOptions struct {
@@ -414,6 +422,7 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request, session auth
 		strings.TrimSpace(r.URL.Query().Get("template")),
 		strings.TrimSpace(r.URL.Query().Get("tab")),
 		session,
+		strings.TrimSpace(r.URL.Query().Get("zone_assignment_page")),
 	)
 	if err != nil {
 		h.respondDomainError(w, r, err)
@@ -926,6 +935,7 @@ func (h *Handler) createCompany(w http.ResponseWriter, r *http.Request, session 
 		strings.TrimSpace(r.FormValue("selected_template")),
 		strings.TrimSpace(r.FormValue("tab")),
 		session,
+		strings.TrimSpace(r.FormValue("zone_assignment_page")),
 	)
 	if err != nil {
 		h.internalError(w, r, "failed to render workspace", err)
@@ -972,6 +982,7 @@ func (h *Handler) createPrincipal(w http.ResponseWriter, r *http.Request, sessio
 		strings.TrimSpace(r.FormValue("selected_template")),
 		strings.TrimSpace(r.FormValue("tab")),
 		session,
+		strings.TrimSpace(r.FormValue("zone_assignment_page")),
 	)
 	if err != nil {
 		h.internalError(w, r, "failed to render workspace", err)
@@ -1015,6 +1026,7 @@ func (h *Handler) deletePrincipal(w http.ResponseWriter, r *http.Request, sessio
 		strings.TrimSpace(r.FormValue("selected_template")),
 		strings.TrimSpace(r.FormValue("tab")),
 		session,
+		strings.TrimSpace(r.FormValue("zone_assignment_page")),
 	)
 	if err != nil {
 		h.internalError(w, r, "failed to render workspace", err)
@@ -1048,6 +1060,7 @@ func (h *Handler) deleteCompany(w http.ResponseWriter, r *http.Request, session 
 		strings.TrimSpace(r.FormValue("selected_template")),
 		strings.TrimSpace(r.FormValue("tab")),
 		session,
+		strings.TrimSpace(r.FormValue("zone_assignment_page")),
 	)
 	if err != nil {
 		h.internalError(w, r, "failed to render workspace", err)
@@ -1095,6 +1108,7 @@ func (h *Handler) updateMembership(w http.ResponseWriter, r *http.Request, sessi
 		strings.TrimSpace(r.FormValue("selected_template")),
 		strings.TrimSpace(r.FormValue("tab")),
 		session,
+		strings.TrimSpace(r.FormValue("zone_assignment_page")),
 	)
 	if err != nil {
 		h.internalError(w, r, "failed to render workspace", err)
@@ -1151,6 +1165,7 @@ func (h *Handler) updateZoneAssignment(w http.ResponseWriter, r *http.Request, s
 		strings.TrimSpace(r.FormValue("selected_template")),
 		strings.TrimSpace(r.FormValue("tab")),
 		session,
+		strings.TrimSpace(r.FormValue("zone_assignment_page")),
 	)
 	if err != nil {
 		h.internalError(w, r, "failed to render workspace", err)
@@ -1200,7 +1215,7 @@ func (h *Handler) renderTemplateEditor(w http.ResponseWriter, r *http.Request, t
 	h.render(w, "zone_template_editor", state, http.StatusOK)
 }
 
-func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery string, zonePage int, selectedZone, selectedTemplate, requestedTab string, session auth.Session) (viewData, error) {
+func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery string, zonePage int, selectedZone, selectedTemplate, requestedTab string, session auth.Session, zoneAssignmentPageRaw ...string) (viewData, error) {
 	allZones, err := h.zones.ListZones(ctx)
 	if err != nil {
 		return viewData{}, err
@@ -1230,6 +1245,12 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 	pagedZones, resolvedPage, totalPages := paginateZones(filteredZones, zonePage, zonesPerPage)
 	if selectedZone == "" && len(pagedZones) > 0 {
 		selectedZone = pagedZones[0].Name
+	}
+	zoneAssignmentPage := 1
+	if len(zoneAssignmentPageRaw) > 0 {
+		if raw := strings.TrimSpace(zoneAssignmentPageRaw[0]); raw != "" {
+			zoneAssignmentPage = parsePage(raw)
+		}
 	}
 
 	var templates []domain.ZoneTemplate
@@ -1295,26 +1316,35 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 		}
 	}
 
+	pagedZoneAssignments, resolvedZoneAssignmentPage, zoneAssignmentTotalPages := paginateZoneAssignments(zoneAssignments, zoneAssignmentPage, zoneAssignmentsPerPage)
+
 	defaultRecordType := firstRecordType(h.availableRecordTypes)
 	data := viewData{
-		L:                  h.i18n.Catalog(lang),
-		Lang:               lang,
-		Supported:          h.i18n.Supported(),
-		Zones:              pagedZones,
-		ManageZones:        manageZones,
-		ZoneQuery:          zoneQuery,
-		ZonePage:           resolvedPage,
-		ZoneTotal:          len(filteredZones),
-		ZoneTotalPages:     totalPages,
-		ZonePrevPage:       resolvedPage - 1,
-		ZoneNextPage:       resolvedPage + 1,
-		ZoneHasPrev:        resolvedPage > 1,
-		ZoneHasNext:        resolvedPage < totalPages,
-		Templates:          templates,
-		Companies:          companies,
-		Principals:         principals,
-		CompanyMemberships: companyMemberships,
-		ZoneAssignments:    zoneAssignments,
+		L:                        h.i18n.Catalog(lang),
+		Lang:                     lang,
+		Supported:                h.i18n.Supported(),
+		Zones:                    pagedZones,
+		ManageZones:              manageZones,
+		ZoneQuery:                zoneQuery,
+		ZonePage:                 resolvedPage,
+		ZoneTotal:                len(filteredZones),
+		ZoneTotalPages:           totalPages,
+		ZonePrevPage:             resolvedPage - 1,
+		ZoneNextPage:             resolvedPage + 1,
+		ZoneHasPrev:              resolvedPage > 1,
+		ZoneHasNext:              resolvedPage < totalPages,
+		Templates:                templates,
+		Companies:                companies,
+		Principals:               principals,
+		CompanyMemberships:       companyMemberships,
+		ZoneAssignments:          pagedZoneAssignments,
+		ZoneAssignmentPage:       resolvedZoneAssignmentPage,
+		ZoneAssignmentTotal:      len(zoneAssignments),
+		ZoneAssignmentTotalPages: zoneAssignmentTotalPages,
+		ZoneAssignmentPrevPage:   resolvedZoneAssignmentPage - 1,
+		ZoneAssignmentNextPage:   resolvedZoneAssignmentPage + 1,
+		ZoneAssignmentHasPrev:    resolvedZoneAssignmentPage > 1,
+		ZoneAssignmentHasNext:    resolvedZoneAssignmentPage < zoneAssignmentTotalPages,
 		ZoneRecordForm: recordFormData{
 			Type: defaultRecordType,
 			TTL:  3600,
@@ -1451,6 +1481,38 @@ func paginateZones(zones []domain.Zone, page, pageSize int) ([]domain.Zone, int,
 
 	result := make([]domain.Zone, end-start)
 	copy(result, zones[start:end])
+	return result, page, totalPages
+}
+
+func paginateZoneAssignments(assignments []access.ZoneAssignment, page, pageSize int) ([]access.ZoneAssignment, int, int) {
+	if pageSize <= 0 {
+		pageSize = zoneAssignmentsPerPage
+	}
+
+	totalPages := (len(assignments) + pageSize - 1) / pageSize
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	if page < 1 {
+		page = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+
+	start := (page - 1) * pageSize
+	if start >= len(assignments) {
+		return []access.ZoneAssignment{}, page, totalPages
+	}
+
+	end := start + pageSize
+	if end > len(assignments) {
+		end = len(assignments)
+	}
+
+	result := make([]access.ZoneAssignment, end-start)
+	copy(result, assignments[start:end])
 	return result, page, totalPages
 }
 
