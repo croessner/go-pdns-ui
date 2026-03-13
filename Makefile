@@ -19,7 +19,7 @@ DOCKER_RUN_CLI_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 	@:
 endif
 
-.PHONY: run test build tidy vendor fmt docker-build docker-run compose-up compose-down compose-logs sbom
+.PHONY: run test build clean tidy vendor fmt docker-build docker-run compose-up compose-down compose-logs sbom
 
 run:
 	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; $(GO) run ./cmd/go-pdns-ui
@@ -30,6 +30,9 @@ test:
 build:
 	mkdir -p $(BIN_DIR)
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(APP_BIN) ./cmd/go-pdns-ui
+
+clean:
+	rm -f $(APP_BIN) go-pdns-ui
 
 tidy:
 	GOFLAGS=-mod=mod $(GO) mod tidy
