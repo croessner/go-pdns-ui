@@ -100,7 +100,7 @@ func (c *CSRFManager) RequireSessionToken(next authedHandler) authedHandler {
 // SetLoginToken generates a new CSRF token for the pre-authentication login
 // form, stores it in a short-lived HttpOnly cookie restricted to /login, and
 // returns the token value for embedding as a hidden form field.
-func (c *CSRFManager) SetLoginToken(w http.ResponseWriter, secure bool) (string, error) {
+func (c *CSRFManager) SetLoginToken(w http.ResponseWriter) (string, error) {
 	token, err := c.GenerateToken()
 	if err != nil {
 		return "", err
@@ -110,7 +110,7 @@ func (c *CSRFManager) SetLoginToken(w http.ResponseWriter, secure bool) (string,
 		Value:    token,
 		Path:     "/login",
 		HttpOnly: true,
-		Secure:   secure,
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 		Expires:  time.Now().Add(10 * time.Minute),
 	})
@@ -137,6 +137,7 @@ func (c *CSRFManager) ClearLoginToken(w http.ResponseWriter) {
 		Path:     "/login",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	})
 }

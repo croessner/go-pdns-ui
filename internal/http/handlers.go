@@ -215,7 +215,7 @@ func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
 	}
 	passwordLoginEnabled := !h.oidcOnlyLogin
 
-	csrfToken, err := h.csrf.SetLoginToken(w, h.requestIsSecure(r))
+	csrfToken, err := h.csrf.SetLoginToken(w)
 	if err != nil {
 		h.logger.Warn("login_csrf_token_generation_failed", "error", err)
 	}
@@ -250,7 +250,7 @@ func (h *Handler) loginPassword(w http.ResponseWriter, r *http.Request) {
 
 	if h.rateLimiter.IsLocked(r) {
 		h.logger.Warn("login_rate_limited", "remote_addr", r.RemoteAddr)
-		newToken, _ := h.csrf.SetLoginToken(w, h.requestIsSecure(r))
+		newToken, _ := h.csrf.SetLoginToken(w)
 		h.render(w, "login.html", viewData{
 			L:                    h.i18n.Catalog(lang),
 			Lang:                 lang,
@@ -273,7 +273,7 @@ func (h *Handler) loginPassword(w http.ResponseWriter, r *http.Request) {
 	if !h.csrf.ValidateLoginToken(r) {
 		h.logger.Warn("login_csrf_validation_failed")
 		h.csrf.ClearLoginToken(w)
-		newToken, _ := h.csrf.SetLoginToken(w, h.requestIsSecure(r))
+		newToken, _ := h.csrf.SetLoginToken(w)
 		h.render(w, "login.html", viewData{
 			L:                    h.i18n.Catalog(lang),
 			Lang:                 lang,
@@ -294,7 +294,7 @@ func (h *Handler) loginPassword(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.rateLimiter.RecordFailure(r)
 		h.logger.Warn("password_login_failed", "username", username, "error", err)
-		newToken, _ := h.csrf.SetLoginToken(w, h.requestIsSecure(r))
+		newToken, _ := h.csrf.SetLoginToken(w)
 		h.render(w, "login.html", viewData{
 			L:                    h.i18n.Catalog(lang),
 			Lang:                 lang,
@@ -310,7 +310,7 @@ func (h *Handler) loginPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.rateLimiter.RecordSuccess(r)
-	h.setSessionCookie(w, session.ID, h.requestIsSecure(r))
+	h.setSessionCookie(w, session.ID)
 	h.logger.Info("password_login_succeeded", "username", username, "role", session.User.Role)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -389,7 +389,7 @@ func (h *Handler) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.setSessionCookie(w, session.ID, h.requestIsSecure(r))
+	h.setSessionCookie(w, session.ID)
 	h.logger.Info("oidc_login_succeeded", "username", session.User.Username, "role", session.User.Role)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -1986,13 +1986,13 @@ func (h *Handler) readSessionID(r *http.Request) (string, bool) {
 	return sessionID, true
 }
 
-func (h *Handler) setSessionCookie(w http.ResponseWriter, sessionID string, secure bool) {
+func (h *Handler) setSessionCookie(w http.ResponseWriter, sessionID string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   secure,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(24 * time.Hour),
 	})
@@ -2005,6 +2005,7 @@ func (h *Handler) clearSessionCookie(w http.ResponseWriter) {
 		MaxAge:   -1,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -2018,6 +2019,7 @@ func (h *Handler) resolveLanguage(w http.ResponseWriter, r *http.Request) string
 			Value:    lang,
 			Path:     "/",
 			HttpOnly: true,
+			Secure:   true,
 			SameSite: http.SameSiteLaxMode,
 			Expires:  time.Now().Add(180 * 24 * time.Hour),
 		})
