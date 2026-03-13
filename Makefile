@@ -11,6 +11,7 @@ SBOM_OUTPUT_PREFIX ?= go-pdns-ui
 SBOM_DOCKER_IMAGE ?= ghcr.io/croessner/go-pdns-ui:latest
 SBOM_DOCKER_PULL ?= true
 SBOM_SYFT_VERSION ?= v1.16.0
+.DEFAULT_GOAL := build
 
 ifeq ($(firstword $(MAKECMDGOALS)),docker-run)
 DOCKER_RUN_CLI_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
