@@ -109,6 +109,7 @@ type viewData struct {
 	ZoneCompanyIDByZone      map[string]string
 	ZoneCompanyNameByZone    map[string]string
 	AvailableRecordTypes     []string
+	ZoneWarnings             []string
 	AuditEnabled             bool
 	AuditEntries             []audit.Entry
 	AuditQuery               string
@@ -1413,6 +1414,7 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 
 			data.SelectedZone = &draft
 			data.DraftDirty = dirty
+			data.ZoneWarnings = formatZoneWarnings(draft, data.L)
 		}
 	}
 
@@ -1837,6 +1839,20 @@ func buildAuditTargetDetail(attrs []any) (string, string) {
 		pairs = append(pairs, key+"="+val)
 	}
 	return target, strings.Join(pairs, ", ")
+}
+
+func formatZoneWarnings(zone domain.Zone, catalog map[string]string) []string {
+	validationWarnings := domain.ValidateZoneRecords(zone)
+	if len(validationWarnings) == 0 {
+		return nil
+	}
+
+	messages := make([]string, 0, len(validationWarnings))
+	for _, w := range validationWarnings {
+		messages = append(messages, domain.FormatWarning(w, catalog))
+	}
+
+	return messages
 }
 
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, message string, err error) {

@@ -157,5 +157,10 @@
   "audit_target": "Ziel",
   "audit_detail": "Detail",
   "audit_total": "Audit-Einträge",
-  "audit_no_entries": "Keine Audit-Log-Einträge gefunden."
+  "audit_no_entries": "Keine Audit-Log-Einträge gefunden.",
+  "zone_warnings_title": "Validierungshinweise",
+  "lint_cname_conflict": "CNAME-Konflikt: \"{name}\" hat einen CNAME-Record zusammen mit einem {detail}-Record. Ein CNAME muss der einzige Record auf einem Namen sein.",
+  "lint_mx_invalid_hostname": "MX-Ziel \"{detail}\" bei \"{name}\" sieht nicht nach einem gültigen Hostnamen aus.",
+  "lint_ns_invalid_hostname": "NS-Ziel \"{detail}\" bei \"{name}\" sieht nicht nach einem gültigen Hostnamen aus.",
+  "lint_duplicate_record": "Doppelter Record: {name} {type} mit Inhalt \"{detail}\" kommt mehrfach vor."
 }
