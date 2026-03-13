@@ -206,20 +206,36 @@ func TestIsHXRequest(t *testing.T) {
 func TestRequestIsSecure(t *testing.T) {
 	t.Parallel()
 
+	hDefault := &Handler{}
 	httpsReq := httptest.NewRequest("GET", "https://ui.example.test/", nil)
-	if !requestIsSecure(httpsReq) {
+	if !hDefault.requestIsSecure(httpsReq) {
 		t.Fatalf("expected HTTPS request to be secure")
 	}
 
+	trusted, err := NewTrustedProxies([]string{"0.0.0.0/0", "::/0"})
+	if err != nil {
+		t.Fatalf("new trusted proxies failed: %v", err)
+	}
+	hTrusted := &Handler{
+		trustedProxies: trusted,
+	}
 	proxyReq := httptest.NewRequest("GET", "http://ui.example.test/", nil)
 	proxyReq.Header.Set("X-Forwarded-Proto", "https")
-	if !requestIsSecure(proxyReq) {
+	if !hTrusted.requestIsSecure(proxyReq) {
 		t.Fatalf("expected forwarded HTTPS request to be secure")
 	}
 
 	httpReq := httptest.NewRequest("GET", "http://ui.example.test/", nil)
-	if requestIsSecure(httpReq) {
+	if hDefault.requestIsSecure(httpReq) {
 		t.Fatalf("expected plain HTTP request to be insecure")
+	}
+
+	hForcedInsecure := &Handler{
+		forceInsecureHTTP: true,
+		trustedProxies:    hTrusted.trustedProxies,
+	}
+	if hForcedInsecure.requestIsSecure(httpsReq) {
+		t.Fatalf("expected force insecure http to disable secure detection")
 	}
 }
 

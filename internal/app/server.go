@@ -138,7 +138,9 @@ func (r *Runtime) Run(ctx context.Context) error {
 		r.deps.AccessService,
 		ui.HandlerOptions{
 			OIDCOnlyLogin:        r.config.OIDCOnlyLogin,
+			ForceInsecureHTTP:    r.config.ForceInsecureHTTP,
 			AvailableRecordTypes: r.config.AvailableRecordTypes,
+			TrustedProxies:       r.config.TrustedProxies,
 		},
 		r.logger.With("component", "http"),
 	)

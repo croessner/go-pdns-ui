@@ -58,6 +58,7 @@
         hx-swap="outerHTML"
         class="grid gap-2 sm:grid-cols-2"
       >
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
         <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
         <input type="hidden" name="q" value="{{.ZoneQuery}}">
         <input type="hidden" name="page" value="{{.ZonePage}}">
@@ -159,6 +160,7 @@
           hx-swap="outerHTML"
           class="grid gap-2 sm:grid-cols-2"
         >
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
           <input type="hidden" name="selected_zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
           <input type="hidden" name="page" value="{{.ZonePage}}">
@@ -219,6 +221,7 @@
                     class="inline"
                     hx-confirm="{{index $.L "confirm_delete_template"}}"
                   >
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
                     <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
                     <input type="hidden" name="q" value="{{$.ZoneQuery}}">
                     <input type="hidden" name="page" value="{{$.ZonePage}}">

@@ -114,6 +114,7 @@ services:
       GO_PDNS_UI_OIDC_SCOPES: openid profile email groups
       GO_PDNS_UI_OIDC_ADMIN_GROUP: admin
       GO_PDNS_UI_OIDC_USER_GROUP: user
+      GO_PDNS_UI_TRUSTED_PROXIES: 172.16.0.0/12
       GO_PDNS_API_URL: http://pdns:8081/api/v1
       GO_PDNS_API_KEY: ${PDNS_API_KEY:-change-me}
       GO_PDNS_SERVER_ID: localhost

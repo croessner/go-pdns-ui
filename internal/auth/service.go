@@ -28,6 +28,10 @@ type Service interface {
 	CompleteOIDCAuth(ctx context.Context, state, code string) (Session, error)
 	BuildOIDCLogoutURL(session Session, postLogoutRedirectURL string) (string, bool)
 	GetSession(sessionID string) (Session, bool)
+	// TouchSession returns the session identified by sessionID, updates its
+	// LastSeenAt timestamp, and returns false if the session does not exist or
+	// has exceeded the inactivity timeout.
+	TouchSession(sessionID string) (Session, bool)
 	ValidateSession(sessionID string) bool
 	RevokeSession(sessionID string)
 }
@@ -41,6 +45,9 @@ type InMemoryService struct {
 	logger   *slog.Logger
 	// showDefaultCredentialsHint indicates that local auth uses the startup fallback defaults.
 	showDefaultCredentialsHint bool
+	// inactivityTimeout is the maximum time a session may be idle before it is
+	// automatically revoked. A value of 0 disables inactivity-based expiry.
+	inactivityTimeout time.Duration
 
 	sessions map[string]Session
 	flows    map[string]oidcFlow
@@ -98,6 +105,13 @@ func NewInMemoryServiceFromEnvWithLogger(ctx context.Context, logger *slog.Logge
 	}
 	// Only display the hint if both credentials come from fallback defaults.
 	service.showDefaultCredentialsHint = !usernameIsSet && !passwordIsSet
+
+	inactivityMinutes := getenvIntOrDefault("GO_PDNS_UI_SESSION_INACTIVITY_TIMEOUT_MINUTES", 120)
+	service.inactivityTimeout = time.Duration(inactivityMinutes) * time.Minute
+
+	if service.showDefaultCredentialsHint {
+		logger.Error("SECURITY: application is running with default credentials – set GO_PDNS_UI_USERNAME and GO_PDNS_UI_PASSWORD before exposing to any network")
+	}
 
 	return service, nil
 }
@@ -282,6 +296,31 @@ func (s *InMemoryService) ValidateSession(sessionID string) bool {
 	return ok
 }
 
+func (s *InMemoryService) TouchSession(sessionID string) (Session, bool) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return Session{}, false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return Session{}, false
+	}
+
+	if s.inactivityTimeout > 0 && time.Since(session.LastSeenAt) > s.inactivityTimeout {
+		delete(s.sessions, sessionID)
+		s.logger.Info("session_expired_inactivity")
+		return Session{}, false
+	}
+
+	session.LastSeenAt = time.Now()
+	s.sessions[sessionID] = session
+	return session, true
+}
+
 func (s *InMemoryService) RevokeSession(sessionID string) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -296,11 +335,19 @@ func (s *InMemoryService) RevokeSession(sessionID string) {
 
 func (s *InMemoryService) newSession(user User, idToken string) Session {
 	sessionID := randomHex(24)
+	csrfToken, err := randomBase64URL(32)
+	if err != nil {
+		s.logger.Warn("csrf_token_generation_failed", "error", err)
+		csrfToken = randomHex(32)
+	}
+	now := time.Now()
 	session := Session{
-		ID:        sessionID,
-		User:      user,
-		IDToken:   strings.TrimSpace(idToken),
-		CreatedAt: time.Now(),
+		ID:         sessionID,
+		User:       user,
+		IDToken:    strings.TrimSpace(idToken),
+		CSRFToken:  csrfToken,
+		CreatedAt:  now,
+		LastSeenAt: now,
 	}
 
 	s.mu.Lock()

@@ -18,6 +18,7 @@
       <h3 class="text-lg font-semibold">{{index .L "user_management"}}</h3>
       <div class="grid gap-4 xl:grid-cols-[minmax(280px,360px)_1fr]">
         <form hx-post="/access/principals" hx-target="#workspace" hx-swap="outerHTML" class="grid gap-2">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
           <input type="hidden" name="selected_zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
           <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
@@ -54,6 +55,7 @@
                 <td>{{.AuthSource}}</td>
                 <td class="text-right">
                   <form hx-post="/access/principals/{{.ID}}/delete" hx-target="#workspace" hx-swap="outerHTML" class="inline" hx-confirm="{{index $.L "confirm_delete_user"}}">
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
                     <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
                     <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
                     <input type="hidden" name="q" value="{{$.ZoneQuery}}">
@@ -87,6 +89,7 @@
       <h3 class="text-lg font-semibold">{{index .L "company_assignments"}}</h3>
       <div class="grid gap-4 xl:grid-cols-3">
         <form hx-post="/access/companies" hx-target="#workspace" hx-swap="outerHTML" class="grid gap-2">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
           <input type="hidden" name="selected_zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
           <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
@@ -100,6 +103,7 @@
         </form>
 
         <form hx-post="/access/memberships" hx-target="#workspace" hx-swap="outerHTML" class="grid gap-2">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
           <input type="hidden" name="selected_zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
           <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
@@ -130,6 +134,7 @@
         </form>
 
         <form hx-post="/access/zones" hx-target="#workspace" hx-swap="outerHTML" class="grid gap-2">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
           <input type="hidden" name="selected_zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
           <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
@@ -181,6 +186,7 @@
                 <td>{{.Name}}</td>
                 <td class="text-right">
                   <form hx-post="/access/companies/{{.ID}}/delete" hx-target="#workspace" hx-swap="outerHTML" class="inline" hx-confirm="{{index $.L "confirm_delete_company"}}">
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
                     <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
                     <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
                     <input type="hidden" name="q" value="{{$.ZoneQuery}}">
@@ -238,6 +244,7 @@
                 <td>{{.CompanyName}}</td>
                 <td class="text-right">
                   <form hx-post="/access/zones" hx-target="#workspace" hx-swap="outerHTML" class="inline">
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
                     <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
                     <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
                     <input type="hidden" name="q" value="{{$.ZoneQuery}}">

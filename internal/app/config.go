@@ -17,6 +17,7 @@ const (
 	defaultDBMaxLifetime  = 300
 	defaultOIDCAutoCreate = true
 	defaultOIDCOnlyLogin  = false
+	defaultForceInsecure  = false
 )
 
 var defaultAvailableRecordTypes = []string{
@@ -43,7 +44,9 @@ type Config struct {
 	DBConnMaxLifetimeSecs int
 	OIDCAutoCreate        bool
 	OIDCOnlyLogin         bool
+	ForceInsecureHTTP     bool
 	AvailableRecordTypes  []string
+	TrustedProxies        []string
 }
 
 func LoadConfigFromEnv() Config {
@@ -57,7 +60,9 @@ func LoadConfigFromEnv() Config {
 		DBConnMaxLifetimeSecs: getenvIntOrDefault("GO_PDNS_UI_DB_CONN_MAX_LIFETIME_SECONDS", defaultDBMaxLifetime),
 		OIDCAutoCreate:        getenvBoolOrDefault("GO_PDNS_UI_AUTHZ_OIDC_AUTO_CREATE", defaultOIDCAutoCreate),
 		OIDCOnlyLogin:         getenvBoolOrDefault("GO_PDNS_UI_AUTH_OIDC_ONLY", defaultOIDCOnlyLogin),
+		ForceInsecureHTTP:     getenvBoolOrDefault("GO_PDNS_UI_FORCE_INSECURE_HTTP", defaultForceInsecure),
 		AvailableRecordTypes:  loadAvailableRecordTypesFromEnv(),
+		TrustedProxies:        loadTrustedProxiesFromEnv(),
 	}
 }
 
@@ -152,6 +157,27 @@ func parseLogLevel(value string) (slog.Level, error) {
 	default:
 		return 0, fmt.Errorf("invalid log level %q (allowed: debug, info, warn, error)", value)
 	}
+}
+
+func loadTrustedProxiesFromEnv() []string {
+	raw := strings.TrimSpace(os.Getenv("GO_PDNS_UI_TRUSTED_PROXIES"))
+	if raw == "" {
+		return nil
+	}
+
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\n' || r == '\t'
+	})
+
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+
+	return result
 }
 
 func getenvOrDefault(key, fallback string) string {

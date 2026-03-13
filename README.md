@@ -49,6 +49,31 @@ Modern HTMX UI for administering PowerDNS zones with draft/apply workflow.
 - `GO_PDNS_UI_AUTH_OIDC_ONLY` (default: `false`; if `true`, local password login is disabled)
 - `GO_PDNS_UI_AVAILABLE_RECORD_TYPES` (optional; comma/space-separated RR types shown in editor type selectors and helper buttons)
 
+### Security
+
+- `GO_PDNS_UI_FORCE_INSECURE_HTTP` (default: `false`; forces the app to treat all requests as HTTP, disabling `Secure` cookie flags and suppressing `Strict-Transport-Security`)
+- `GO_PDNS_UI_TRUSTED_PROXIES` (optional; comma/space-separated list of CIDR ranges whose `X-Forwarded-Proto` and `X-Forwarded-Host` headers are trusted — required when running behind a reverse proxy)
+- `GO_PDNS_UI_SESSION_INACTIVITY_TIMEOUT_MINUTES` (default: `120`; sessions idle longer than this are automatically revoked)
+
+**Trusted proxies** must be configured when the app runs behind a reverse proxy that sets `X-Forwarded-Proto`. Without this setting the app ignores forwarded headers entirely, which means:
+
+- `Strict-Transport-Security` is not sent (HTTPS not detected)
+- Session and CSRF cookies are not marked `Secure`
+- OIDC post-logout redirect URL is built with `http://` instead of `https://`
+
+For a direct Docker Compose deployment behind Caddy, set `GO_PDNS_UI_TRUSTED_PROXIES=172.16.0.0/12` (Docker Compose default subnet range). Use the narrowest range that covers your actual proxy IP(s) in production.
+
+All responses include the following security headers regardless of proxy configuration:
+
+- `Content-Security-Policy` with a per-request nonce for inline scripts (`'unsafe-inline'` is not used for scripts)
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Permissions-Policy: geolocation=(), microphone=(), camera=()`
+- `Strict-Transport-Security` (only when HTTPS is detected via TLS or a trusted proxy)
+
+**Rate limiting** for password login: after 5 failed attempts from the same IP, that IP is locked out for 60 seconds. The lockout key is always the direct peer IP (`RemoteAddr`) — it cannot be bypassed via `X-Forwarded-For`.
+
 ### Access Control / Persistence
 
 - `GO_PDNS_UI_AUTHZ_MODE` (default: `off`; values: `off`, `company`)
@@ -95,6 +120,7 @@ Logging:
 - `GO_PDNS_UI_USERNAME` (default: `admin`)
 - `GO_PDNS_UI_PASSWORD` (default: `admin`)
 - Password login is unavailable when `GO_PDNS_UI_AUTH_OIDC_ONLY=true`.
+- If neither variable is set, the app logs an `ERROR`-level warning at startup. Always set explicit credentials before exposing the app to any network.
 
 ### OIDC (optional)
 

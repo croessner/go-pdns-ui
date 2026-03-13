@@ -12,6 +12,7 @@ func TestLoadConfigFromEnvDefaults(t *testing.T) {
 	t.Setenv("GO_PDNS_UI_DB_CONN_MAX_LIFETIME_SECONDS", "")
 	t.Setenv("GO_PDNS_UI_AUTHZ_OIDC_AUTO_CREATE", "")
 	t.Setenv("GO_PDNS_UI_AUTH_OIDC_ONLY", "")
+	t.Setenv("GO_PDNS_UI_FORCE_INSECURE_HTTP", "")
 	t.Setenv("GO_PDNS_UI_AVAILABLE_RECORD_TYPES", "")
 
 	cfg := LoadConfigFromEnv().withDefaults()
@@ -43,6 +44,9 @@ func TestLoadConfigFromEnvDefaults(t *testing.T) {
 	if cfg.OIDCOnlyLogin {
 		t.Fatalf("expected oidc-only login to default to false")
 	}
+	if cfg.ForceInsecureHTTP {
+		t.Fatalf("expected force insecure http to default to false")
+	}
 	if len(cfg.AvailableRecordTypes) == 0 {
 		t.Fatalf("expected default available record types to be non-empty")
 	}
@@ -61,6 +65,7 @@ func TestLoadConfigFromEnvOverrides(t *testing.T) {
 	t.Setenv("GO_PDNS_UI_DB_CONN_MAX_LIFETIME_SECONDS", "600")
 	t.Setenv("GO_PDNS_UI_AUTHZ_OIDC_AUTO_CREATE", "false")
 	t.Setenv("GO_PDNS_UI_AUTH_OIDC_ONLY", "true")
+	t.Setenv("GO_PDNS_UI_FORCE_INSECURE_HTTP", "true")
 	t.Setenv("GO_PDNS_UI_AVAILABLE_RECORD_TYPES", "a,aaaa,txt, tlsa")
 
 	cfg := LoadConfigFromEnv().withDefaults()
@@ -91,6 +96,9 @@ func TestLoadConfigFromEnvOverrides(t *testing.T) {
 	}
 	if !cfg.OIDCOnlyLogin {
 		t.Fatalf("expected oidc-only login to be enabled")
+	}
+	if !cfg.ForceInsecureHTTP {
+		t.Fatalf("expected force insecure http to be enabled")
 	}
 	if got := len(cfg.AvailableRecordTypes); got != 4 {
 		t.Fatalf("expected 4 available record types, got %d (%v)", got, cfg.AvailableRecordTypes)

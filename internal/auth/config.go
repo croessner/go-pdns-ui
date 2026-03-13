@@ -89,6 +89,18 @@ func getenvOrDefault(key, fallback string) string {
 	return value
 }
 
+func getenvIntOrDefault(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
 func getenvBool(key string) bool {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {

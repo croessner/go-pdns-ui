@@ -64,6 +64,7 @@
               class="inline"
               hx-confirm="{{index $.L "confirm_delete_zone"}}"
             >
+              <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
               <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
               <input type="hidden" name="q" value="{{$.ZoneQuery}}">
               <input type="hidden" name="page" value="{{$.ZonePage}}">

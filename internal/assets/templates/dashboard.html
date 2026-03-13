@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{index .L "app_title"}}</title>
-  <script>
+  <script nonce="{{.CSPNonce}}">
     (function () {
       const key = "go-pdns-ui-theme";
       const allowedThemes = new Set(["light", "dark"]);
@@ -100,6 +100,7 @@
         </button>
 
         <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
           <button type="submit" class="btn btn-sm btn-outline">{{index .L "logout"}}</button>
         </form>
       </div>
@@ -148,7 +149,7 @@
     </form>
   </dialog>
 
-  <script>
+  <script nonce="{{.CSPNonce}}">
     function setCookie(name, value, maxAgeSeconds) {
       document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAgeSeconds}; samesite=lax`;
     }
@@ -327,14 +328,6 @@
           TLSA: dialogRoot.querySelector("dialog[data-record-dialog='TLSA']")
         };
 
-        const buttonByType = {
-          TXT: form.querySelector("[data-open-record-dialog='TXT']"),
-          SRV: form.querySelector("[data-open-record-dialog='SRV']"),
-          SOA: form.querySelector("[data-open-record-dialog='SOA']"),
-          CAA: form.querySelector("[data-open-record-dialog='CAA']"),
-          TLSA: form.querySelector("[data-open-record-dialog='TLSA']")
-        };
-
         const isEditingRecord = () => {
           const oldName = oldNameInput ? oldNameInput.value.trim() : "";
           const oldType = oldTypeInput ? oldTypeInput.value.trim() : "";
@@ -480,11 +473,23 @@
           TLSA: openTLSADialog
         };
 
-        Object.keys(openDialogByType).forEach((recordType) => {
-          const button = buttonByType[recordType];
-          const dialog = dialogByType[recordType];
-          if (!button || !dialog) return;
-          button.addEventListener("click", openDialogByType[recordType]);
+        const openDialogForSelectedType = (event) => {
+          const selectedType = (typeInput.value || "").trim().toUpperCase();
+          const openDialog = openDialogByType[selectedType];
+          const dialog = dialogByType[selectedType];
+          if (typeof openDialog !== "function" || !dialog) {
+            return false;
+          }
+          if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          openDialog();
+          return true;
+        };
+
+        contentInput.addEventListener("pointerdown", (event) => {
+          openDialogForSelectedType(event);
         });
 
         const txtDialog = dialogByType.TXT;

@@ -20,8 +20,10 @@ type User struct {
 }
 
 type Session struct {
-	ID        string
-	User      User
-	IDToken   string
-	CreatedAt time.Time
+	ID         string
+	User       User
+	IDToken    string
+	CSRFToken  string
+	CreatedAt  time.Time
+	LastSeenAt time.Time
 }

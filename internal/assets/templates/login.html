@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{index .L "login_title"}} | {{index .L "app_title"}}</title>
-  <script>
+  <script nonce="{{.CSPNonce}}">
     (function () {
       const key = "go-pdns-ui-theme";
       const allowedThemes = new Set(["light", "dark"]);
@@ -101,6 +101,7 @@
 
           {{if .PasswordLoginEnabled}}
           <form method="post" action="/login/password" class="space-y-3">
+            <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
             <label class="floating-label">
               <span>{{index .L "username"}}</span>
               <input type="text" name="username" class="input input-bordered w-full" autocomplete="username" required>
@@ -125,7 +126,7 @@
     </div>
   </div>
 
-  <script>
+  <script nonce="{{.CSPNonce}}">
     const loginRoot = document.documentElement;
     const toggle = document.getElementById("theme-toggle");
     const themeController = window.__goPDNSUITheme || null;

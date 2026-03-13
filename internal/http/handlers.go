@@ -38,7 +38,12 @@ type Handler struct {
 	i18n                 *i18n.Service
 	logger               *slog.Logger
 	oidcOnlyLogin        bool
+	forceInsecureHTTP    bool
 	availableRecordTypes []string
+	csrf                 *CSRFManager
+	secHeaders           *SecurityHeaders
+	rateLimiter          *RateLimiter
+	trustedProxies       *TrustedProxies
 }
 
 type recordFormData struct {
@@ -75,6 +80,8 @@ type viewData struct {
 	ZoneDialogEditing     bool
 	TemplateDialogEditing bool
 	Error                 string
+	CSRFToken             string
+	CSPNonce              string
 	CurrentUser           *auth.User
 	CurrentPrincipalID    string
 	IsAdmin               bool
@@ -94,7 +101,9 @@ type viewData struct {
 
 type HandlerOptions struct {
 	OIDCOnlyLogin        bool
+	ForceInsecureHTTP    bool
 	AvailableRecordTypes []string
+	TrustedProxies       []string
 }
 
 type authedHandler func(http.ResponseWriter, *http.Request, auth.Session)
@@ -128,6 +137,12 @@ func NewHandler(
 
 	logger.Info("templates_loaded")
 
+	tp, err := NewTrustedProxies(options.TrustedProxies)
+	if err != nil {
+		logger.Warn("trusted_proxies_parse_failed", "error", err)
+		tp = &TrustedProxies{}
+	}
+
 	return &Handler{
 		templates:            tmpl,
 		zones:                zones,
@@ -137,7 +152,12 @@ func NewHandler(
 		i18n:                 i18nService,
 		logger:               logger,
 		oidcOnlyLogin:        options.OIDCOnlyLogin,
+		forceInsecureHTTP:    options.ForceInsecureHTTP,
 		availableRecordTypes: normalizeAvailableRecordTypes(options.AvailableRecordTypes),
+		csrf:                 NewCSRFManager(),
+		secHeaders:           NewSecurityHeaders(),
+		rateLimiter:          NewRateLimiter(),
+		trustedProxies:       tp,
 	}, nil
 }
 
@@ -148,30 +168,30 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login/oidc/start", h.withRequestLogging(h.startOIDCLogin))
 	mux.HandleFunc("GET /auth/oidc/callback", h.withRequestLogging(h.oidcCallback))
 	mux.HandleFunc("GET /logout", h.withRequestLogging(h.requireAuth(h.logout)))
-	mux.HandleFunc("POST /logout", h.withRequestLogging(h.requireAuth(h.logout)))
+	mux.HandleFunc("POST /logout", h.withRequestLogging(h.requireAuth(h.csrf.RequireSessionToken(h.logout))))
 
 	mux.HandleFunc("GET /", h.withRequestLogging(h.requireAuth(h.dashboard)))
-	mux.HandleFunc("POST /zones", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.createZone)))
-	mux.HandleFunc("POST /zones/{zone}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.deleteZone)))
+	mux.HandleFunc("POST /zones", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.createZone))))
+	mux.HandleFunc("POST /zones/{zone}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.deleteZone))))
 	mux.HandleFunc("GET /zones/{zone}/editor", h.withRequestLogging(h.requireAuth(h.zoneEditor)))
-	mux.HandleFunc("POST /zones/{zone}/dnssec", h.withRequestLogging(h.requireZoneWrite(h.toggleDNSSEC)))
-	mux.HandleFunc("POST /zones/{zone}/records", h.withRequestLogging(h.requireZoneWrite(h.saveRecord)))
-	mux.HandleFunc("POST /zones/{zone}/records/delete", h.withRequestLogging(h.requireZoneWrite(h.deleteRecord)))
-	mux.HandleFunc("POST /zones/{zone}/apply", h.withRequestLogging(h.requireZoneWrite(h.applyZone)))
-	mux.HandleFunc("POST /zones/{zone}/reset", h.withRequestLogging(h.requireZoneWrite(h.resetZoneDraft)))
+	mux.HandleFunc("POST /zones/{zone}/dnssec", h.withRequestLogging(h.requireZoneWrite(h.csrf.RequireSessionToken(h.toggleDNSSEC))))
+	mux.HandleFunc("POST /zones/{zone}/records", h.withRequestLogging(h.requireZoneWrite(h.csrf.RequireSessionToken(h.saveRecord))))
+	mux.HandleFunc("POST /zones/{zone}/records/delete", h.withRequestLogging(h.requireZoneWrite(h.csrf.RequireSessionToken(h.deleteRecord))))
+	mux.HandleFunc("POST /zones/{zone}/apply", h.withRequestLogging(h.requireZoneWrite(h.csrf.RequireSessionToken(h.applyZone))))
+	mux.HandleFunc("POST /zones/{zone}/reset", h.withRequestLogging(h.requireZoneWrite(h.csrf.RequireSessionToken(h.resetZoneDraft))))
 
-	mux.HandleFunc("POST /templates", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.createTemplate)))
-	mux.HandleFunc("POST /templates/{template}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.deleteTemplate)))
+	mux.HandleFunc("POST /templates", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.createTemplate))))
+	mux.HandleFunc("POST /templates/{template}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.deleteTemplate))))
 	mux.HandleFunc("GET /templates/{template}/editor", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.templateEditor)))
-	mux.HandleFunc("POST /templates/{template}/records", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.saveTemplateRecord)))
-	mux.HandleFunc("POST /templates/{template}/records/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.deleteTemplateRecord)))
+	mux.HandleFunc("POST /templates/{template}/records", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.saveTemplateRecord))))
+	mux.HandleFunc("POST /templates/{template}/records/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.deleteTemplateRecord))))
 
-	mux.HandleFunc("POST /access/principals", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.createPrincipal)))
-	mux.HandleFunc("POST /access/principals/{principal}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.deletePrincipal)))
-	mux.HandleFunc("POST /access/companies", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.createCompany)))
-	mux.HandleFunc("POST /access/companies/{company}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.deleteCompany)))
-	mux.HandleFunc("POST /access/memberships", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.updateMembership)))
-	mux.HandleFunc("POST /access/zones", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.updateZoneAssignment)))
+	mux.HandleFunc("POST /access/principals", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.createPrincipal))))
+	mux.HandleFunc("POST /access/principals/{principal}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.deletePrincipal))))
+	mux.HandleFunc("POST /access/companies", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.createCompany))))
+	mux.HandleFunc("POST /access/companies/{company}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.deleteCompany))))
+	mux.HandleFunc("POST /access/memberships", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.updateMembership))))
+	mux.HandleFunc("POST /access/zones", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.updateZoneAssignment))))
 }
 
 func (h *Handler) favicon(w http.ResponseWriter, _ *http.Request) {
@@ -187,6 +207,11 @@ func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
 	}
 	passwordLoginEnabled := !h.oidcOnlyLogin
 
+	csrfToken, err := h.csrf.SetLoginToken(w, h.requestIsSecure(r))
+	if err != nil {
+		h.logger.Warn("login_csrf_token_generation_failed", "error", err)
+	}
+
 	h.render(w, "login.html", viewData{
 		L:                    h.i18n.Catalog(lang),
 		Lang:                 lang,
@@ -194,6 +219,8 @@ func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
 		ShowLoginHint:        passwordLoginEnabled && h.auth.ShowDefaultCredentialsHint(),
 		PasswordLoginEnabled: passwordLoginEnabled,
 		OIDCEnabled:          h.auth.OIDCEnabled(),
+		CSRFToken:            csrfToken,
+		CSPNonce:             NonceFromContext(r.Context()),
 	}, http.StatusOK)
 }
 
@@ -213,15 +240,9 @@ func (h *Handler) loginPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
-		h.badRequest(w, r, "invalid form", err)
-		return
-	}
-
-	username := strings.TrimSpace(r.FormValue("username"))
-	session, err := h.auth.LoginWithPassword(r.FormValue("username"), r.FormValue("password"))
-	if err != nil {
-		h.logger.Warn("password_login_failed", "username", username, "error", err)
+	if h.rateLimiter.IsLocked(r) {
+		h.logger.Warn("login_rate_limited", "remote_addr", r.RemoteAddr)
+		newToken, _ := h.csrf.SetLoginToken(w, h.requestIsSecure(r))
 		h.render(w, "login.html", viewData{
 			L:                    h.i18n.Catalog(lang),
 			Lang:                 lang,
@@ -230,11 +251,58 @@ func (h *Handler) loginPassword(w http.ResponseWriter, r *http.Request) {
 			PasswordLoginEnabled: true,
 			OIDCEnabled:          h.auth.OIDCEnabled(),
 			Error:                h.i18n.Catalog(lang)["login_failed"],
+			CSRFToken:            newToken,
+			CSPNonce:             NonceFromContext(r.Context()),
+		}, http.StatusTooManyRequests)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		h.badRequest(w, r, "invalid form", err)
+		return
+	}
+
+	if !h.csrf.ValidateLoginToken(r) {
+		h.logger.Warn("login_csrf_validation_failed")
+		h.csrf.ClearLoginToken(w)
+		newToken, _ := h.csrf.SetLoginToken(w, h.requestIsSecure(r))
+		h.render(w, "login.html", viewData{
+			L:                    h.i18n.Catalog(lang),
+			Lang:                 lang,
+			Supported:            h.i18n.Supported(),
+			ShowLoginHint:        h.auth.ShowDefaultCredentialsHint(),
+			PasswordLoginEnabled: true,
+			OIDCEnabled:          h.auth.OIDCEnabled(),
+			Error:                h.i18n.Catalog(lang)["login_failed"],
+			CSRFToken:            newToken,
+			CSPNonce:             NonceFromContext(r.Context()),
+		}, http.StatusForbidden)
+		return
+	}
+	h.csrf.ClearLoginToken(w)
+
+	username := strings.TrimSpace(r.FormValue("username"))
+	session, err := h.auth.LoginWithPassword(r.FormValue("username"), r.FormValue("password"))
+	if err != nil {
+		h.rateLimiter.RecordFailure(r)
+		h.logger.Warn("password_login_failed", "username", username, "error", err)
+		newToken, _ := h.csrf.SetLoginToken(w, h.requestIsSecure(r))
+		h.render(w, "login.html", viewData{
+			L:                    h.i18n.Catalog(lang),
+			Lang:                 lang,
+			Supported:            h.i18n.Supported(),
+			ShowLoginHint:        h.auth.ShowDefaultCredentialsHint(),
+			PasswordLoginEnabled: true,
+			OIDCEnabled:          h.auth.OIDCEnabled(),
+			Error:                h.i18n.Catalog(lang)["login_failed"],
+			CSRFToken:            newToken,
+			CSPNonce:             NonceFromContext(r.Context()),
 		}, http.StatusUnauthorized)
 		return
 	}
 
-	h.setSessionCookie(w, session.ID, requestIsSecure(r))
+	h.rateLimiter.RecordSuccess(r)
+	h.setSessionCookie(w, session.ID, h.requestIsSecure(r))
 	h.logger.Info("password_login_succeeded", "username", username, "role", session.User.Role)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -313,14 +381,14 @@ func (h *Handler) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.setSessionCookie(w, session.ID, requestIsSecure(r))
+	h.setSessionCookie(w, session.ID, h.requestIsSecure(r))
 	h.logger.Info("oidc_login_succeeded", "username", session.User.Username, "role", session.User.Role)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request, session auth.Session) {
 	redirectTarget := "/login"
-	if oidcLogoutURL, ok := h.auth.BuildOIDCLogoutURL(session, absoluteURLForRequest(r, "/login")); ok {
+	if oidcLogoutURL, ok := h.auth.BuildOIDCLogoutURL(session, h.absoluteURLForRequest(r, "/login")); ok {
 		redirectTarget = oidcLogoutURL
 		h.logger.Info("oidc_logout_redirect_started")
 	}
@@ -1255,6 +1323,8 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 			Type: defaultRecordType,
 			TTL:  3600,
 		},
+		CSRFToken:             session.CSRFToken,
+		CSPNonce:              NonceFromContext(ctx),
 		CurrentUser:           &session.User,
 		CurrentPrincipalID:    currentPrincipal.ID,
 		IsAdmin:               session.User.Role == auth.RoleAdmin,
@@ -1555,6 +1625,7 @@ func (w *loggingResponseWriter) Write(p []byte) (int, error) {
 
 func (h *Handler) withRequestLogging(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		r = h.secHeaders.Apply(w, r, h.requestIsSecure(r))
 		started := time.Now()
 		recorder := &loggingResponseWriter{ResponseWriter: w, status: http.StatusOK}
 		next(recorder, r)
@@ -1697,12 +1768,16 @@ func isHXRequest(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("HX-Request"), "true")
 }
 
-func absoluteURLForRequest(r *http.Request, path string) string {
+func (h *Handler) absoluteURLForRequest(r *http.Request, path string) string {
 	normalizedPath := "/" + strings.TrimLeft(strings.TrimSpace(path), "/")
 
-	host := strings.TrimSpace(firstHeaderValue(r.Header.Get("X-Forwarded-Host")))
-	if host == "" {
-		host = strings.TrimSpace(r.Host)
+	trusted := h.trustedProxies != nil && h.trustedProxies.IsTrusted(r.RemoteAddr)
+
+	host := strings.TrimSpace(r.Host)
+	if trusted {
+		if fwdHost := strings.TrimSpace(firstHeaderValue(r.Header.Get("X-Forwarded-Host"))); fwdHost != "" {
+			host = fwdHost
+		}
 	}
 	if host == "" {
 		return normalizedPath
@@ -1712,8 +1787,12 @@ func absoluteURLForRequest(r *http.Request, path string) string {
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	if forwardedProto := strings.TrimSpace(firstHeaderValue(r.Header.Get("X-Forwarded-Proto"))); forwardedProto != "" {
-		scheme = strings.ToLower(forwardedProto)
+	if h.forceInsecureHTTP {
+		scheme = "http"
+	} else if trusted {
+		if forwardedProto := strings.TrimSpace(firstHeaderValue(r.Header.Get("X-Forwarded-Proto"))); forwardedProto != "" {
+			scheme = strings.ToLower(forwardedProto)
+		}
 	}
 
 	return (&url.URL{
@@ -1723,9 +1802,18 @@ func absoluteURLForRequest(r *http.Request, path string) string {
 	}).String()
 }
 
-func requestIsSecure(r *http.Request) bool {
+func (h *Handler) requestIsSecure(r *http.Request) bool {
+	if h.forceInsecureHTTP {
+		return false
+	}
+
 	if r.TLS != nil {
 		return true
+	}
+
+	trusted := h.trustedProxies != nil && h.trustedProxies.IsTrusted(r.RemoteAddr)
+	if !trusted {
+		return false
 	}
 
 	forwardedProto := strings.TrimSpace(firstHeaderValue(r.Header.Get("X-Forwarded-Proto")))
@@ -1814,7 +1902,7 @@ func (h *Handler) currentSession(r *http.Request) (auth.Session, bool) {
 		return auth.Session{}, false
 	}
 
-	return h.auth.GetSession(sessionID)
+	return h.auth.TouchSession(sessionID)
 }
 
 func (h *Handler) isAuthenticated(r *http.Request) bool {

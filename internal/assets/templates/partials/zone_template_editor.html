@@ -93,6 +93,7 @@
                     hx-swap="outerHTML"
                     data-preserve-scroll="1"
                   >
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
                     <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
                     <input type="hidden" name="q" value="{{$.ZoneQuery}}">
                     <input type="hidden" name="page" value="{{$.ZonePage}}">
@@ -144,6 +145,7 @@
                     class="inline"
                     hx-confirm="{{index $.L "confirm_delete_record"}}"
                   >
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
                     <input type="hidden" name="name" value="{{.Name}}">
                     <input type="hidden" name="type" value="{{.Type}}">
                     <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
@@ -187,6 +189,7 @@
         data-record-form="template"
         data-auto-open-record-dialog="{{if and $templateDialogEdit (eq .TemplateRecordForm.Type "TXT")}}TXT{{else if and $templateDialogEdit (eq .TemplateRecordForm.Type "SRV")}}SRV{{else if and $templateDialogEdit (eq .TemplateRecordForm.Type "SOA")}}SOA{{else if and $templateDialogEdit (eq .TemplateRecordForm.Type "CAA")}}CAA{{else if and $templateDialogEdit (eq .TemplateRecordForm.Type "TLSA")}}TLSA{{end}}"
       >
+        <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
         <input type="hidden" name="selected_zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
         <input type="hidden" name="q" value="{{.ZoneQuery}}">
         <input type="hidden" name="page" value="{{.ZonePage}}">
@@ -214,26 +217,7 @@
         </label>
         <label class="floating-label md:col-span-2">
           <span>{{index .L "content"}}</span>
-          <div class="flex flex-col gap-2 sm:flex-row">
-            <input type="text" name="content" value="{{if $templateDialogEdit}}{{.TemplateRecordForm.Content}}{{end}}" class="input input-bordered w-full" required>
-            <div class="flex gap-2 sm:shrink-0">
-              {{if $showTXTDialog}}
-              <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="TXT">{{index .L "txt_helper"}}</button>
-              {{end}}
-              {{if $showSRVDialog}}
-              <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="SRV">{{index .L "srv_helper"}}</button>
-              {{end}}
-              {{if $showSOADialog}}
-              <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="SOA">{{index .L "soa_helper"}}</button>
-              {{end}}
-              {{if $showCAADialog}}
-              <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="CAA">{{index .L "caa_helper"}}</button>
-              {{end}}
-              {{if $showTLSADialog}}
-              <button type="button" class="btn btn-outline btn-sm" data-open-record-dialog="TLSA">{{index .L "tlsa_helper"}}</button>
-              {{end}}
-            </div>
-          </div>
+          <input type="text" name="content" value="{{if $templateDialogEdit}}{{.TemplateRecordForm.Content}}{{end}}" class="input input-bordered w-full" required>
         </label>
         <div class="md:col-span-6 flex flex-wrap gap-2">
           <button type="submit" class="btn btn-secondary">
