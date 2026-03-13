@@ -1,0 +1,120 @@
+{{define "audit_log"}}
+<details
+  id="audit-log-panel"
+  data-collapse-cookie="1"
+  class="collapse bg-base-100 border border-base-300 shadow-md"
+  open
+>
+  <summary class="collapse-title list-none flex items-center justify-between gap-2 text-xl font-semibold">
+    <span>{{index .L "audit_log"}}</span>
+    <svg class="collapse-toggle-icon h-5 w-5 opacity-70" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+    </svg>
+  </summary>
+  <div class="collapse-content space-y-4">
+    <p class="text-sm opacity-70">{{index .L "audit_log_hint"}}</p>
+
+    <form
+      id="audit-search-form"
+      class="grid gap-2 sm:grid-cols-[1fr_auto_auto]"
+      hx-get="/"
+      hx-target="#workspace"
+      hx-swap="outerHTML"
+    >
+      <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
+      <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+      <input type="hidden" name="q" value="{{.ZoneQuery}}">
+      <input type="hidden" name="page" value="{{.ZonePage}}">
+      <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
+      <input type="hidden" name="audit_page" value="1">
+      <input type="hidden" name="tab" value="audit">
+      <label class="floating-label">
+        <span>{{index .L "audit_search"}}</span>
+        <input
+          type="search"
+          name="audit_q"
+          value="{{.AuditQuery}}"
+          placeholder="{{index .L "audit_search_placeholder"}}"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          class="input input-bordered w-full"
+        >
+      </label>
+      <label class="floating-label">
+        <span>{{index .L "audit_action_filter"}}</span>
+        <select name="audit_action" class="select select-bordered w-full min-h-12 leading-tight">
+          <option value="">{{index .L "audit_all_actions"}}</option>
+          {{range .AuditActions}}
+          <option value="{{.}}" {{if eq . $.AuditAction}}selected{{end}}>{{.}}</option>
+          {{end}}
+        </select>
+      </label>
+      <button type="submit" class="btn btn-primary self-end">{{index .L "search"}}</button>
+    </form>
+
+    <div class="overflow-x-auto rounded-box border border-base-300">
+      <table class="table table-zebra table-sm">
+        <thead>
+          <tr>
+            <th>{{index .L "audit_timestamp"}}</th>
+            <th>{{index .L "audit_action_col"}}</th>
+            <th>{{index .L "user"}}</th>
+            <th>{{index .L "role"}}</th>
+            <th>{{index .L "audit_target"}}</th>
+            <th>{{index .L "audit_detail"}}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .AuditEntries}}
+          <tr>
+            <td class="whitespace-nowrap text-xs">{{formatTime .Timestamp}}</td>
+            <td><span class="badge badge-outline badge-sm whitespace-nowrap">{{.Action}}</span></td>
+            <td class="font-medium">{{.User}}</td>
+            <td><span class="badge badge-ghost badge-sm">{{.Role}}</span></td>
+            <td class="max-w-xs truncate" title="{{.Target}}">{{.Target}}</td>
+            <td class="max-w-md truncate text-xs opacity-80" title="{{.Detail}}">{{.Detail}}</td>
+          </tr>
+          {{else}}
+          <tr>
+            <td colspan="6" class="text-center py-8 opacity-70">{{index .L "audit_no_entries"}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="flex items-center justify-between gap-2">
+      <p class="text-xs opacity-70">{{printf "%s: %d" (index .L "audit_total") .AuditTotal}}</p>
+      <div class="join">
+        <form hx-get="/" hx-target="#workspace" hx-swap="outerHTML" class="join-item">
+          <input type="hidden" name="q" value="{{.ZoneQuery}}">
+          <input type="hidden" name="page" value="{{.ZonePage}}">
+          <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
+          <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
+          <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+          <input type="hidden" name="tab" value="audit">
+          <input type="hidden" name="audit_q" value="{{.AuditQuery}}">
+          <input type="hidden" name="audit_action" value="{{.AuditAction}}">
+          <input type="hidden" name="audit_page" value="{{.AuditPrevPage}}">
+          <button type="submit" class="btn btn-sm" {{if not .AuditHasPrev}}disabled{{end}}>{{index .L "previous_page"}}</button>
+        </form>
+        <button type="button" class="btn btn-sm join-item btn-ghost pointer-events-none">{{printf "%d / %d" .AuditPage .AuditTotalPages}}</button>
+        <form hx-get="/" hx-target="#workspace" hx-swap="outerHTML" class="join-item">
+          <input type="hidden" name="q" value="{{.ZoneQuery}}">
+          <input type="hidden" name="page" value="{{.ZonePage}}">
+          <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
+          <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
+          <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+          <input type="hidden" name="tab" value="audit">
+          <input type="hidden" name="audit_q" value="{{.AuditQuery}}">
+          <input type="hidden" name="audit_action" value="{{.AuditAction}}">
+          <input type="hidden" name="audit_page" value="{{.AuditNextPage}}">
+          <button type="submit" class="btn btn-sm" {{if not .AuditHasNext}}disabled{{end}}>{{index .L "next_page"}}</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</details>
+{{end}}

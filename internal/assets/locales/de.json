@@ -144,5 +144,18 @@
   "toggle_theme": "Theme",
   "scroll_top": "Nach oben",
   "logout": "Abmelden",
-  "read_only_mode": "Du bist mit Rolle `viewer` angemeldet: Zugewiesene Zonen sind sichtbar, Bearbeitung ist deaktiviert."
+  "read_only_mode": "Du bist mit Rolle `viewer` angemeldet: Zugewiesene Zonen sind sichtbar, Bearbeitung ist deaktiviert.",
+  "tab_audit": "Audit-Log",
+  "audit_log": "Audit-Log",
+  "audit_log_hint": "Alle Änderungen durchsuchen: Wer hat wann was geändert.",
+  "audit_search": "Audit-Log durchsuchen",
+  "audit_search_placeholder": "Benutzer, Ziel oder Detail ...",
+  "audit_action_filter": "Aktionsfilter",
+  "audit_all_actions": "Alle Aktionen",
+  "audit_timestamp": "Zeitstempel (UTC)",
+  "audit_action_col": "Aktion",
+  "audit_target": "Ziel",
+  "audit_detail": "Detail",
+  "audit_total": "Audit-Einträge",
+  "audit_no_entries": "Keine Audit-Log-Einträge gefunden."
 }

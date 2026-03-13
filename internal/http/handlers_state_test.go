@@ -8,6 +8,7 @@ import (
 
 	"github.com/croessner/go-pdns-ui/internal/access"
 	"github.com/croessner/go-pdns-ui/internal/assets"
+	"github.com/croessner/go-pdns-ui/internal/audit"
 	"github.com/croessner/go-pdns-ui/internal/auth"
 	"github.com/croessner/go-pdns-ui/internal/domain"
 	"github.com/croessner/go-pdns-ui/internal/i18n"
@@ -256,17 +257,23 @@ func TestCanEditZones(t *testing.T) {
 func TestNormalizeWorkspaceTab(t *testing.T) {
 	t.Parallel()
 
-	if got := normalizeWorkspaceTab("templates", true, true); got != tabTemplates {
+	if got := normalizeWorkspaceTab("templates", true, true, false); got != tabTemplates {
 		t.Fatalf("expected templates tab, got %q", got)
 	}
-	if got := normalizeWorkspaceTab("access", true, true); got != tabAccess {
+	if got := normalizeWorkspaceTab("access", true, true, false); got != tabAccess {
 		t.Fatalf("expected access tab, got %q", got)
 	}
-	if got := normalizeWorkspaceTab("access", true, false); got != tabZones {
+	if got := normalizeWorkspaceTab("access", true, false, false); got != tabZones {
 		t.Fatalf("expected zones fallback when access control is disabled, got %q", got)
 	}
-	if got := normalizeWorkspaceTab("templates", false, true); got != tabZones {
+	if got := normalizeWorkspaceTab("templates", false, true, false); got != tabZones {
 		t.Fatalf("expected zones fallback for non-admin, got %q", got)
+	}
+	if got := normalizeWorkspaceTab("audit", true, false, true); got != tabAudit {
+		t.Fatalf("expected audit tab, got %q", got)
+	}
+	if got := normalizeWorkspaceTab("audit", true, false, false); got != tabZones {
+		t.Fatalf("expected zones fallback when audit is disabled, got %q", got)
 	}
 }
 
@@ -300,6 +307,7 @@ func TestBuildDashboardStateTemplatesHiddenForUserRole(t *testing.T) {
 		zoneTemplates: templateSvc,
 		i18n:          i18nSvc,
 		access:        access.NewNoopService(),
+		audit:         audit.NewNoopService(),
 	}
 	authSvc, err := auth.NewInMemoryService(context.Background(), "admin", "admin", auth.OIDCConfig{})
 	if err != nil {
@@ -351,6 +359,7 @@ func TestBuildDashboardStateFiltersZonesByAccessControl(t *testing.T) {
 		zones:         zoneSvc,
 		zoneTemplates: templateSvc,
 		i18n:          i18nSvc,
+		audit:         audit.NewNoopService(),
 		access: &accessStub{
 			enabled: true,
 			filterFn: func(zones []domain.Zone) []domain.Zone {

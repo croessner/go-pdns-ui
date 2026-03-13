@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/croessner/go-pdns-ui/internal/access"
+	"github.com/croessner/go-pdns-ui/internal/audit"
 	"github.com/croessner/go-pdns-ui/internal/auth"
 	"github.com/croessner/go-pdns-ui/internal/domain"
 	"github.com/croessner/go-pdns-ui/internal/i18n"
@@ -25,9 +26,11 @@ const (
 	langCookieName         = "go_pdns_ui_lang"
 	zonesPerPage           = 10
 	zoneAssignmentsPerPage = 10
+	auditLogPerPage        = 25
 	tabZones               = "zones"
 	tabTemplates           = "templates"
 	tabAccess              = "access"
+	tabAudit               = "audit"
 )
 
 type Handler struct {
@@ -36,6 +39,7 @@ type Handler struct {
 	zoneTemplates        domain.ZoneTemplateService
 	auth                 auth.Service
 	access               access.Service
+	audit                audit.Service
 	i18n                 *i18n.Service
 	logger               *slog.Logger
 	oidcOnlyLogin        bool
@@ -105,6 +109,18 @@ type viewData struct {
 	ZoneCompanyIDByZone      map[string]string
 	ZoneCompanyNameByZone    map[string]string
 	AvailableRecordTypes     []string
+	AuditEnabled             bool
+	AuditEntries             []audit.Entry
+	AuditQuery               string
+	AuditAction              string
+	AuditActions             []string
+	AuditPage                int
+	AuditTotal               int
+	AuditTotalPages          int
+	AuditPrevPage            int
+	AuditNextPage            int
+	AuditHasPrev             bool
+	AuditHasNext             bool
 }
 
 type HandlerOptions struct {
@@ -123,6 +139,7 @@ func NewHandler(
 	authService auth.Service,
 	i18nService *i18n.Service,
 	accessService access.Service,
+	auditService audit.Service,
 	options HandlerOptions,
 	logger *slog.Logger,
 ) (*Handler, error) {
@@ -133,10 +150,16 @@ func NewHandler(
 	if accessService == nil {
 		accessService = access.NewNoopService()
 	}
+	if auditService == nil {
+		auditService = audit.NewNoopService()
+	}
 
 	tmpl, err := template.New("views").Funcs(template.FuncMap{
 		"pathEscape":   url.PathEscape,
 		"containsType": containsType,
+		"formatTime": func(t time.Time) string {
+			return t.UTC().Format("2006-01-02 15:04:05")
+		},
 	}).ParseFS(templateFS, "templates/*.html", "templates/partials/*.html")
 	if err != nil {
 		logger.Error("template_parse_failed", "error", err)
@@ -157,6 +180,7 @@ func NewHandler(
 		zoneTemplates:        zoneTemplates,
 		auth:                 authService,
 		access:               accessService,
+		audit:                auditService,
 		i18n:                 i18nService,
 		logger:               logger,
 		oidcOnlyLogin:        options.OIDCOnlyLogin,
@@ -428,6 +452,13 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request, session auth
 		h.respondDomainError(w, r, err)
 		return
 	}
+
+	h.populateAuditData(
+		r.Context(), &state,
+		strings.TrimSpace(r.URL.Query().Get("audit_q")),
+		strings.TrimSpace(r.URL.Query().Get("audit_action")),
+		parsePage(strings.TrimSpace(r.URL.Query().Get("audit_page"))),
+	)
 
 	if isHXRequest(r) {
 		h.render(w, "workspace", state, http.StatusOK)
@@ -1359,9 +1390,10 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 		CurrentPrincipalID:    currentPrincipal.ID,
 		IsAdmin:               session.User.Role == auth.RoleAdmin,
 		CanEditZones:          canEditZones(session.User.Role),
-		ActiveTab:             normalizeWorkspaceTab(requestedTab, session.User.Role == auth.RoleAdmin, h.access.Enabled()),
+		ActiveTab:             normalizeWorkspaceTab(requestedTab, session.User.Role == auth.RoleAdmin, h.access.Enabled(), h.audit.Enabled()),
 		OIDCEnabled:           h.auth.OIDCEnabled(),
 		AccessControlEnabled:  h.access.Enabled(),
+		AuditEnabled:          h.audit.Enabled(),
 		ZoneCompanyIDByZone:   zoneCompanyIDByZone,
 		ZoneCompanyNameByZone: zoneCompanyNameByZone,
 		AvailableRecordTypes:  h.availableRecordTypes,
@@ -1396,6 +1428,46 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 	}
 
 	return data, nil
+}
+
+func (h *Handler) populateAuditData(ctx context.Context, data *viewData, auditQuery, auditAction string, auditPage int) {
+	if !h.audit.Enabled() || data.ActiveTab != tabAudit {
+		return
+	}
+
+	if auditPage < 1 {
+		auditPage = 1
+	}
+
+	actions, err := h.audit.Actions(ctx)
+	if err != nil {
+		h.logger.Warn("audit_actions_list_failed", "error", err)
+	}
+	data.AuditActions = actions
+	data.AuditQuery = auditQuery
+	data.AuditAction = auditAction
+
+	result, err := h.audit.Search(ctx, audit.SearchParams{
+		Query:  auditQuery,
+		Action: auditAction,
+		Page:   auditPage,
+		Limit:  auditLogPerPage,
+	})
+	if err != nil {
+		h.logger.Warn("audit_log_search_failed", "error", err)
+		data.AuditPage = 1
+		data.AuditTotalPages = 1
+		return
+	}
+
+	data.AuditEntries = result.Entries
+	data.AuditTotal = result.Total
+	data.AuditPage = result.Page
+	data.AuditTotalPages = result.TotalPages
+	data.AuditPrevPage = result.Page - 1
+	data.AuditNextPage = result.Page + 1
+	data.AuditHasPrev = result.Page > 1
+	data.AuditHasNext = result.Page < result.TotalPages
 }
 
 func filterZones(zones []domain.Zone, query string) []domain.Zone {
@@ -1730,6 +1802,41 @@ func (h *Handler) logAction(message string, session auth.Session, attrs ...any) 
 	}
 	baseAttrs = append(baseAttrs, attrs...)
 	h.logger.Info(message, baseAttrs...)
+
+	if h.audit.Enabled() {
+		target, detail := buildAuditTargetDetail(attrs)
+		entry := audit.Entry{
+			Timestamp:  time.Now().UTC(),
+			Action:     message,
+			User:       user,
+			Role:       string(session.User.Role),
+			AuthSource: session.User.AuthSource,
+			Target:     target,
+			Detail:     detail,
+		}
+		if err := h.audit.Log(context.Background(), entry); err != nil {
+			h.logger.Warn("audit_log_persist_failed", "action", message, "error", err)
+		}
+	}
+}
+
+// buildAuditTargetDetail extracts a human-readable target and detail string
+// from the key-value attrs passed to logAction.
+func buildAuditTargetDetail(attrs []any) (string, string) {
+	pairs := make([]string, 0, len(attrs)/2)
+	var target string
+	for i := 0; i+1 < len(attrs); i += 2 {
+		key := fmt.Sprintf("%v", attrs[i])
+		val := fmt.Sprintf("%v", attrs[i+1])
+		if target == "" {
+			switch key {
+			case "zone_name", "company_name", "principal_id", "template_name":
+				target = val
+			}
+		}
+		pairs = append(pairs, key+"="+val)
+	}
+	return target, strings.Join(pairs, ", ")
 }
 
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, message string, err error) {
@@ -1938,7 +2045,7 @@ func canEditZones(role auth.Role) bool {
 	return role == auth.RoleAdmin || role == auth.RoleUser
 }
 
-func normalizeWorkspaceTab(requested string, isAdmin, accessControlEnabled bool) string {
+func normalizeWorkspaceTab(requested string, isAdmin, accessControlEnabled, auditEnabled bool) string {
 	if !isAdmin {
 		return tabZones
 	}
@@ -1949,6 +2056,11 @@ func normalizeWorkspaceTab(requested string, isAdmin, accessControlEnabled bool)
 	case tabAccess:
 		if accessControlEnabled {
 			return tabAccess
+		}
+		return tabZones
+	case tabAudit:
+		if auditEnabled {
+			return tabAudit
 		}
 		return tabZones
 	case tabZones:

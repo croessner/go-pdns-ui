@@ -12,6 +12,7 @@ import (
 
 	"github.com/croessner/go-pdns-ui/internal/access"
 	"github.com/croessner/go-pdns-ui/internal/assets"
+	"github.com/croessner/go-pdns-ui/internal/audit"
 	"github.com/croessner/go-pdns-ui/internal/auth"
 	"github.com/croessner/go-pdns-ui/internal/domain"
 	ui "github.com/croessner/go-pdns-ui/internal/http"
@@ -26,6 +27,7 @@ type Dependencies struct {
 	AuthService     auth.Service
 	I18nService     *i18n.Service
 	AccessService   access.Service
+	AuditService    audit.Service
 }
 
 type Runtime struct {
@@ -95,6 +97,14 @@ func NewRuntime(ctx context.Context, config Config, logger *slog.Logger, deps De
 		resolvedDeps.AccessService = accessService
 	}
 
+	if resolvedDeps.AuditService == nil {
+		auditSvc, err := newAuditService(ctx, resolvedConfig, logger)
+		if err != nil {
+			return nil, fmt.Errorf("initialize audit log: %w", err)
+		}
+		resolvedDeps.AuditService = auditSvc
+	}
+
 	runtime := &Runtime{
 		config: resolvedConfig,
 		logger: logger.With("component", "app"),
@@ -122,6 +132,11 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 
 func (r *Runtime) Run(ctx context.Context) error {
 	defer func() {
+		if r.deps.AuditService != nil {
+			if err := r.deps.AuditService.Close(); err != nil {
+				r.logger.Warn("audit_service_close_failed", "error", err)
+			}
+		}
 		if r.deps.AccessService != nil {
 			if err := r.deps.AccessService.Close(); err != nil {
 				r.logger.Warn("access_service_close_failed", "error", err)
@@ -136,6 +151,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 		r.deps.AuthService,
 		r.deps.I18nService,
 		r.deps.AccessService,
+		r.deps.AuditService,
 		ui.HandlerOptions{
 			OIDCOnlyLogin:        r.config.OIDCOnlyLogin,
 			ForceInsecureHTTP:    r.config.ForceInsecureHTTP,
@@ -308,6 +324,20 @@ func seedTemplates() []domain.ZoneTemplate {
 			},
 		},
 	}
+}
+
+func newAuditService(ctx context.Context, config Config, logger *slog.Logger) (audit.Service, error) {
+	dsn := config.DatabaseURL
+	if dsn == "" {
+		return audit.NewNoopService(), nil
+	}
+
+	return audit.NewPostgresService(ctx, audit.DBConfig{
+		DSN:                 dsn,
+		MaxOpenConns:        config.DBMaxOpenConns,
+		MaxIdleConns:        config.DBMaxIdleConns,
+		ConnMaxLifetimeSecs: config.DBConnMaxLifetimeSecs,
+	}, logger)
 }
 
 func ensureFQDN(value string) string {

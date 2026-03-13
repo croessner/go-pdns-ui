@@ -144,5 +144,18 @@
   "toggle_theme": "Theme",
   "scroll_top": "Back to top",
   "logout": "Logout",
-  "read_only_mode": "You are signed in with role `viewer`: assigned zones are visible, but editing is disabled."
+  "read_only_mode": "You are signed in with role `viewer`: assigned zones are visible, but editing is disabled.",
+  "tab_audit": "Audit Log",
+  "audit_log": "Audit Log",
+  "audit_log_hint": "Browse the history of all changes: who changed what, and when.",
+  "audit_search": "Search audit log",
+  "audit_search_placeholder": "User, target or detail ...",
+  "audit_action_filter": "Action filter",
+  "audit_all_actions": "All actions",
+  "audit_timestamp": "Timestamp (UTC)",
+  "audit_action_col": "Action",
+  "audit_target": "Target",
+  "audit_detail": "Detail",
+  "audit_total": "Audit entries",
+  "audit_no_entries": "No audit log entries found."
 }

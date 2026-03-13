@@ -33,6 +33,17 @@
           <button type="submit" role="tab" class="tab {{if eq .ActiveTab "access"}}tab-active{{end}}">{{index .L "tab_access"}}</button>
         </form>
         {{end}}
+        {{if .AuditEnabled}}
+        <form hx-get="/" hx-target="#workspace" hx-swap="outerHTML" class="inline">
+          <input type="hidden" name="q" value="{{.ZoneQuery}}">
+          <input type="hidden" name="page" value="{{.ZonePage}}">
+          <input type="hidden" name="zone_assignment_page" value="{{.ZoneAssignmentPage}}">
+          <input type="hidden" name="zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
+          <input type="hidden" name="template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+          <input type="hidden" name="tab" value="audit">
+          <button type="submit" role="tab" class="tab {{if eq .ActiveTab "audit"}}tab-active{{end}}">{{index .L "tab_audit"}}</button>
+        </form>
+        {{end}}
       </div>
     </div>
   </section>
@@ -260,6 +271,10 @@
 
   {{if and .IsAdmin .AccessControlEnabled (eq .ActiveTab "access")}}
   {{template "access_control" .}}
+  {{end}}
+
+  {{if and .IsAdmin .AuditEnabled (eq .ActiveTab "audit")}}
+  {{template "audit_log" .}}
   {{end}}
 </div>
 {{end}}

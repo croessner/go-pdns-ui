@@ -151,7 +151,7 @@ func newThemeTestMuxWithOptions(t *testing.T, options HandlerOptions) (*http.Ser
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	handler, err := NewHandler(assets.Files, zoneSvc, templateSvc, authSvc, i18nSvc, nil, options, logger)
+	handler, err := NewHandler(assets.Files, zoneSvc, templateSvc, authSvc, i18nSvc, nil, nil, options, logger)
 	if err != nil {
 		t.Fatalf("new handler failed: %v", err)
 	}
