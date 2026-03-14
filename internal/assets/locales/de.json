@@ -125,6 +125,9 @@
   "close": "Schließen",
   "save_record": "Record im Entwurf speichern",
   "edit_record": "Bearbeiten",
+  "add_ptr_record": "PTR hinzufügen",
+  "replace_ptr_record": "PTR ersetzen",
+  "confirm_replace_ptr_record": "In der Reverse-Zone existiert bereits ein PTR für diesen Namen. Soll er ersetzt werden?",
   "update_record": "Record aktualisieren",
   "cancel_edit": "Bearbeiten abbrechen",
   "delete": "Löschen",
@@ -174,5 +177,10 @@
   "stats_templates": "Templates",
   "stats_dnssec": "DNSSEC aktiv",
   "stats_dnssec_disabled": "ohne DNSSEC",
-  "stats_recent_changes": "Letzte Änderungen"
+  "stats_recent_changes": "Letzte Änderungen",
+  "zone_rfc_tools": "Zone Import/Export (RFC)",
+  "export_zone_rfc": "Zone exportieren (RFC)",
+  "import_zone_rfc": "Zone importieren (RFC)",
+  "zone_rfc_input": "Zone als RFC-Text",
+  "zone_rfc_placeholder": "$ORIGIN example.org.\n$TTL 3600\n@ IN SOA ns1.example.org. hostmaster.example.org. 2026031401 10800 3600 604800 3600\n@ IN NS ns1.example.org.\nwww IN A 192.0.2.10"
 }

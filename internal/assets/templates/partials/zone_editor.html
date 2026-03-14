@@ -75,6 +75,41 @@
       {{end}}
     </div>
 
+    {{if .IsAdmin}}
+    <details class="collapse collapse-arrow bg-base-200 border border-base-300">
+      <summary class="collapse-title text-sm font-semibold">{{index .L "zone_rfc_tools"}}</summary>
+      <div class="collapse-content space-y-3">
+        <form method="post" action="/zones/{{pathEscape .SelectedZone.Name}}/export" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <button type="submit" class="btn btn-sm btn-outline">{{index .L "export_zone_rfc"}}</button>
+        </form>
+        <form
+          hx-post="/zones/{{pathEscape .SelectedZone.Name}}/import"
+          hx-target="#zone-editor"
+          hx-swap="outerHTML"
+          class="space-y-2"
+          data-preserve-scroll="1"
+        >
+          <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
+          <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
+          <input type="hidden" name="q" value="{{.ZoneQuery}}">
+          <input type="hidden" name="page" value="{{.ZonePage}}">
+          <input type="hidden" name="tab" value="{{.ActiveTab}}">
+          <label class="floating-label block">
+            <span>{{index .L "zone_rfc_input"}}</span>
+            <textarea
+              name="zone_data"
+              class="textarea textarea-bordered w-full min-h-40 font-mono text-xs"
+              placeholder="{{index .L "zone_rfc_placeholder"}}"
+              required
+            ></textarea>
+          </label>
+          <button type="submit" class="btn btn-sm btn-primary">{{index .L "import_zone_rfc"}}</button>
+        </form>
+      </div>
+    </details>
+    {{end}}
+
     {{if .ZoneWarnings}}
     <div class="alert alert-warning shadow-sm">
       <svg class="h-5 w-5 shrink-0" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -184,6 +219,7 @@
             </tr>
             {{else}}
             <tr>
+              {{$ptrAction := index $.PTRAddActionsByRecord (recordActionKey .)}}
               <td class="font-mono text-xs">{{.Name}}</td>
               <td><span class="badge badge-outline">{{.Type}}</span></td>
               <td>{{.TTL}}</td>
@@ -205,6 +241,28 @@
                   <input type="hidden" name="edit_type" value="{{.Type}}">
                   <button type="submit" class="btn btn-ghost btn-xs">{{index $.L "edit_record"}}</button>
                 </form>
+                {{if and $ptrAction.Show (or (eq .Type "A") (eq .Type "AAAA"))}}
+                <form
+                  hx-post="/zones/{{pathEscape $.SelectedZone.Name}}/records/ptr"
+                  hx-target="#zone-editor"
+                  hx-swap="outerHTML"
+                  class="inline"
+                  data-preserve-scroll="1"
+                  {{if $ptrAction.PTRExists}}hx-confirm="{{index $.L "confirm_replace_ptr_record"}}"{{end}}
+                >
+                  <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                  <input type="hidden" name="source_name" value="{{.Name}}">
+                  <input type="hidden" name="source_type" value="{{.Type}}">
+                  <input type="hidden" name="replace_existing" value="{{if $ptrAction.PTRExists}}true{{else}}false{{end}}">
+                  <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
+                  <input type="hidden" name="q" value="{{$.ZoneQuery}}">
+                  <input type="hidden" name="page" value="{{$.ZonePage}}">
+                  <input type="hidden" name="tab" value="{{$.ActiveTab}}">
+                  <button type="submit" class="btn {{if $ptrAction.PTRExists}}btn-warning{{else}}btn-outline{{end}} btn-xs">
+                    {{if $ptrAction.PTRExists}}{{index $.L "replace_ptr_record"}}{{else}}{{index $.L "add_ptr_record"}}{{end}}
+                  </button>
+                </form>
+                {{end}}
                 {{if ne .Type "SOA"}}
                 <form
                   hx-post="/zones/{{pathEscape $.SelectedZone.Name}}/records/delete"

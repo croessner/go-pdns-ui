@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -64,6 +65,20 @@ type recordFormData struct {
 	Editing bool
 }
 
+type ptrAddAction struct {
+	Show        bool
+	ReverseZone string
+	PTRName     string
+	PTRContent  string
+	PTRExists   bool
+}
+
+type ptrTarget struct {
+	ReverseZone string
+	RecordName  string
+	Content     string
+}
+
 type viewData struct {
 	L                        map[string]string
 	Lang                     string
@@ -111,6 +126,7 @@ type viewData struct {
 	ManageZones              []domain.Zone
 	ZoneCompanyIDByZone      map[string]string
 	ZoneCompanyNameByZone    map[string]string
+	PTRAddActionsByRecord    map[string]ptrAddAction
 	AvailableRecordTypes     []string
 	ZoneWarnings             []string
 	AuditEnabled             bool
@@ -165,8 +181,9 @@ func NewHandler(
 	}
 
 	tmpl, err := template.New("views").Funcs(template.FuncMap{
-		"pathEscape":   url.PathEscape,
-		"containsType": containsType,
+		"pathEscape":      url.PathEscape,
+		"containsType":    containsType,
+		"recordActionKey": recordActionKey,
 		"formatTime": func(t time.Time) string {
 			return t.UTC().Format("2006-01-02 15:04:05")
 		},
@@ -217,8 +234,11 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /zones", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.createZone))))
 	mux.HandleFunc("POST /zones/{zone}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.deleteZone))))
 	mux.HandleFunc("GET /zones/{zone}/editor", h.withRequestLogging(h.requireAuth(h.zoneEditor)))
+	mux.HandleFunc("POST /zones/{zone}/export", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.exportZoneRFC))))
 	mux.HandleFunc("POST /zones/{zone}/dnssec", h.withRequestLogging(h.requireZoneWrite(h.csrf.RequireSessionToken(h.toggleDNSSEC))))
+	mux.HandleFunc("POST /zones/{zone}/import", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.importZoneRFC))))
 	mux.HandleFunc("POST /zones/{zone}/records", h.withRequestLogging(h.requireZoneWrite(h.csrf.RequireSessionToken(h.saveRecord))))
+	mux.HandleFunc("POST /zones/{zone}/records/ptr", h.withRequestLogging(h.requireZoneWrite(h.csrf.RequireSessionToken(h.addPTRRecord))))
 	mux.HandleFunc("POST /zones/{zone}/records/delete", h.withRequestLogging(h.requireZoneWrite(h.csrf.RequireSessionToken(h.deleteRecord))))
 	mux.HandleFunc("POST /zones/{zone}/apply", h.withRequestLogging(h.requireZoneWrite(h.csrf.RequireSessionToken(h.applyZone))))
 	mux.HandleFunc("POST /zones/{zone}/reset", h.withRequestLogging(h.requireZoneWrite(h.csrf.RequireSessionToken(h.resetZoneDraft))))
@@ -524,6 +544,79 @@ func (h *Handler) exportAuditCSV(w http.ResponseWriter, r *http.Request, _ auth.
 	}
 }
 
+func (h *Handler) exportZoneRFC(w http.ResponseWriter, r *http.Request, session auth.Session) {
+	zoneName := strings.TrimSpace(r.PathValue("zone"))
+	if zoneName == "" {
+		h.badRequest(w, r, "zone missing", nil)
+		return
+	}
+	if !h.ensureZoneAccess(w, r, session, zoneName) {
+		return
+	}
+
+	zone, err := h.zones.GetDraft(r.Context(), zoneName)
+	if err != nil {
+		h.respondDomainError(w, r, err)
+		return
+	}
+
+	payload := formatZoneRFCText(zone)
+	filename := strings.NewReplacer("/", "_", "\\", "_", " ", "_").Replace(strings.TrimSpace(zone.Name))
+	if filename == "" {
+		filename = "zone"
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.zone\"", filename))
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.WriteString(w, payload); err != nil {
+		h.logger.Warn("zone_rfc_export_write_failed", "zone_name", zoneName, "error", err)
+		return
+	}
+
+	h.logAction("zone_rfc_exported", session, "zone_name", zoneName)
+}
+
+func (h *Handler) importZoneRFC(w http.ResponseWriter, r *http.Request, session auth.Session) {
+	zoneName := strings.TrimSpace(r.PathValue("zone"))
+	if zoneName == "" {
+		h.badRequest(w, r, "zone missing", nil)
+		return
+	}
+	if !h.ensureZoneAccess(w, r, session, zoneName) {
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		h.badRequest(w, r, "invalid form", err)
+		return
+	}
+
+	zoneData := strings.TrimSpace(r.FormValue("zone_data"))
+	if zoneData == "" {
+		h.badRequest(w, r, "zone file input missing", nil)
+		return
+	}
+
+	records, err := parseZoneRFCText(zoneName, zoneData)
+	if err != nil {
+		h.badRequest(w, r, "invalid zone rfc content", err)
+		return
+	}
+	if !containsRecordType(records, "SOA") {
+		h.badRequest(w, r, "zone import requires an SOA record", nil)
+		return
+	}
+
+	if err := h.replaceZoneDraftRecords(r.Context(), zoneName, records); err != nil {
+		h.respondDomainError(w, r, err)
+		return
+	}
+
+	h.logAction("zone_rfc_imported", session, "zone_name", zoneName, "record_count", len(records))
+	h.renderZoneEditor(w, r, zoneName, session)
+}
+
 func (h *Handler) createZone(w http.ResponseWriter, r *http.Request, session auth.Session) {
 	lang := h.resolveLanguage(w, r)
 	if err := r.ParseForm(); err != nil {
@@ -735,6 +828,144 @@ func (h *Handler) saveRecord(w http.ResponseWriter, r *http.Request, session aut
 		"record_name", strings.TrimSpace(r.FormValue("name")),
 		"record_type", strings.ToUpper(strings.TrimSpace(r.FormValue("type"))),
 		"ttl", ttl,
+	)
+
+	h.renderZoneEditor(w, r, zoneName, session)
+}
+
+func (h *Handler) addPTRRecord(w http.ResponseWriter, r *http.Request, session auth.Session) {
+	zoneName := strings.TrimSpace(r.PathValue("zone"))
+	if zoneName == "" {
+		h.badRequest(w, r, "zone missing", nil)
+		return
+	}
+	if !h.ensureZoneAccess(w, r, session, zoneName) {
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		h.badRequest(w, r, "invalid form", err)
+		return
+	}
+
+	sourceName := strings.TrimSpace(r.FormValue("source_name"))
+	sourceType := strings.ToUpper(strings.TrimSpace(r.FormValue("source_type")))
+	replaceExisting := strings.EqualFold(strings.TrimSpace(r.FormValue("replace_existing")), "true")
+	if sourceName == "" {
+		h.badRequest(w, r, "source record name missing", nil)
+		return
+	}
+	if sourceType != "A" && sourceType != "AAAA" {
+		h.badRequest(w, r, "source record type must be A or AAAA", nil)
+		return
+	}
+
+	forwardDraft, err := h.zones.GetDraft(r.Context(), zoneName)
+	if err != nil {
+		h.respondDomainError(w, r, err)
+		return
+	}
+
+	sourceRecord, found := findRecord(forwardDraft.Records, sourceName, sourceType)
+	if !found {
+		h.badRequest(w, r, "source record not found", nil)
+		return
+	}
+
+	allZones, err := h.zones.ListZones(r.Context())
+	if err != nil {
+		h.respondDomainError(w, r, fmt.Errorf("%w: list zones: %v", domain.ErrBackend, err))
+		return
+	}
+	accessibleZones, err := h.access.FilterZones(r.Context(), session.User, allZones)
+	if err != nil {
+		h.respondAccessError(w, r, err)
+		return
+	}
+
+	target, ok := resolvePTRTarget(forwardDraft.Name, sourceRecord, accessibleZones)
+	if !ok {
+		h.badRequest(w, r, "no matching reverse zone found for source record", nil)
+		return
+	}
+
+	reverseDraft, err := h.zones.GetDraft(r.Context(), target.ReverseZone)
+	if err != nil {
+		h.respondDomainError(w, r, err)
+		return
+	}
+
+	if existing, exists := findRecord(reverseDraft.Records, target.RecordName, "PTR"); exists {
+		if strings.EqualFold(strings.TrimSpace(existing.Content), strings.TrimSpace(target.Content)) {
+			h.renderZoneEditor(w, r, zoneName, session)
+			return
+		}
+		if !replaceExisting {
+			http.Error(w, "ptr record already exists; replacement not confirmed", http.StatusConflict)
+			return
+		}
+
+		err = h.zones.SaveRecord(
+			r.Context(),
+			target.ReverseZone,
+			target.RecordName,
+			"PTR",
+			domain.Record{
+				Name:    target.RecordName,
+				Type:    "PTR",
+				TTL:     sourceRecord.TTL,
+				Content: target.Content,
+			},
+		)
+		if err != nil {
+			h.respondDomainError(w, r, err)
+			return
+		}
+
+		h.logAction(
+			"zone_ptr_record_replaced",
+			session,
+			"zone_name", zoneName,
+			"record_name", sourceRecord.Name,
+			"record_type", sourceRecord.Type,
+			"reverse_zone", target.ReverseZone,
+			"ptr_name", target.RecordName,
+			"old_ptr_content", existing.Content,
+			"new_ptr_content", target.Content,
+			"ttl", sourceRecord.TTL,
+		)
+
+		h.renderZoneEditor(w, r, zoneName, session)
+		return
+	}
+
+	err = h.zones.SaveRecord(
+		r.Context(),
+		target.ReverseZone,
+		"",
+		"",
+		domain.Record{
+			Name:    target.RecordName,
+			Type:    "PTR",
+			TTL:     sourceRecord.TTL,
+			Content: target.Content,
+		},
+	)
+	if err != nil {
+		h.respondDomainError(w, r, err)
+		return
+	}
+
+	h.logAction(
+		"zone_ptr_record_saved",
+		session,
+		"zone_name", zoneName,
+		"record_name", sourceRecord.Name,
+		"record_type", sourceRecord.Type,
+		"reverse_zone", target.ReverseZone,
+		"ptr_name", target.RecordName,
+		"ptr_content", target.Content,
+		"ttl", sourceRecord.TTL,
 	)
 
 	h.renderZoneEditor(w, r, zoneName, session)
@@ -1470,6 +1701,7 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 			data.SelectedZone = &draft
 			data.DraftDirty = dirty
 			data.ZoneWarnings = formatZoneWarnings(draft, data.L)
+			data.PTRAddActionsByRecord = h.computePTRAddActions(ctx, draft, accessibleZones)
 		}
 	}
 
@@ -1788,6 +2020,277 @@ func containsType(recordTypes []string, recordType string) bool {
 		}
 	}
 	return false
+}
+
+func containsRecordType(records []domain.Record, recordType string) bool {
+	recordType = strings.ToUpper(strings.TrimSpace(recordType))
+	if recordType == "" {
+		return false
+	}
+	for _, record := range records {
+		if strings.EqualFold(strings.TrimSpace(record.Type), recordType) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (h *Handler) replaceZoneDraftRecords(ctx context.Context, zoneName string, records []domain.Record) error {
+	draft, err := h.zones.GetDraft(ctx, zoneName)
+	if err != nil {
+		return err
+	}
+
+	existingByNameType := make(map[string]domain.Record, len(draft.Records))
+	for _, record := range draft.Records {
+		existingByNameType[recordNameTypeKey(record)] = record
+	}
+
+	importedByNameType := make(map[string]domain.Record, len(records))
+	for _, record := range records {
+		importedByNameType[recordNameTypeKey(record)] = record
+	}
+
+	for _, record := range draft.Records {
+		if _, keep := importedByNameType[recordNameTypeKey(record)]; keep {
+			continue
+		}
+		if err := h.zones.DeleteRecord(ctx, zoneName, record.Name, record.Type); err != nil {
+			return err
+		}
+	}
+
+	for _, record := range records {
+		oldName := ""
+		oldType := ""
+		if _, exists := existingByNameType[recordNameTypeKey(record)]; exists {
+			oldName = record.Name
+			oldType = record.Type
+		}
+
+		if err := h.zones.SaveRecord(ctx, zoneName, oldName, oldType, record); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (h *Handler) computePTRAddActions(ctx context.Context, forwardZone domain.Zone, accessibleZones []domain.Zone) map[string]ptrAddAction {
+	reverseZones := collectReverseZones(accessibleZones)
+	if len(reverseZones) == 0 || len(forwardZone.Records) == 0 {
+		return nil
+	}
+
+	reverseRecords := make(map[string][]domain.Record, len(reverseZones))
+	for _, reverseZone := range reverseZones {
+		draft, err := h.zones.GetDraft(ctx, reverseZone.Name)
+		if err != nil {
+			continue
+		}
+		reverseRecords[reverseZone.Name] = draft.Records
+	}
+
+	actions := make(map[string]ptrAddAction)
+	for _, record := range forwardZone.Records {
+		target, ok := resolvePTRTarget(forwardZone.Name, record, reverseZones)
+		if !ok {
+			continue
+		}
+
+		records, exists := reverseRecords[target.ReverseZone]
+		if !exists {
+			continue
+		}
+
+		_, ptrExists := findRecord(records, target.RecordName, "PTR")
+
+		actions[recordActionKey(record)] = ptrAddAction{
+			Show:        true,
+			ReverseZone: target.ReverseZone,
+			PTRName:     target.RecordName,
+			PTRContent:  target.Content,
+			PTRExists:   ptrExists,
+		}
+	}
+
+	if len(actions) == 0 {
+		return nil
+	}
+
+	return actions
+}
+
+func resolvePTRTarget(forwardZoneName string, record domain.Record, zones []domain.Zone) (ptrTarget, bool) {
+	recordType := strings.ToUpper(strings.TrimSpace(record.Type))
+	if recordType != "A" && recordType != "AAAA" {
+		return ptrTarget{}, false
+	}
+
+	addr, err := netip.ParseAddr(strings.TrimSpace(record.Content))
+	if err != nil {
+		return ptrTarget{}, false
+	}
+	if recordType == "A" && !addr.Is4() {
+		return ptrTarget{}, false
+	}
+	if recordType == "AAAA" && !addr.Is6() {
+		return ptrTarget{}, false
+	}
+
+	ptrDomain, reverseKind := ptrDomainForAddr(addr)
+	reverseZone, ok := findBestMatchingReverseZone(ptrDomain, reverseKind, zones)
+	if !ok {
+		return ptrTarget{}, false
+	}
+
+	recordName := relativeRecordName(ptrDomain, reverseZone)
+	if recordName == "" {
+		return ptrTarget{}, false
+	}
+
+	content := ensureTrailingDot(absoluteRecordName(record.Name, forwardZoneName))
+	if content == "" {
+		return ptrTarget{}, false
+	}
+
+	return ptrTarget{
+		ReverseZone: reverseZone,
+		RecordName:  recordName,
+		Content:     content,
+	}, true
+}
+
+func collectReverseZones(zones []domain.Zone) []domain.Zone {
+	result := make([]domain.Zone, 0, len(zones))
+	for _, zone := range zones {
+		if zone.Kind == domain.ZoneReverseV4 || zone.Kind == domain.ZoneReverseV6 {
+			result = append(result, zone)
+		}
+	}
+
+	return result
+}
+
+func recordActionKey(record domain.Record) string {
+	return strings.TrimSpace(record.Name) + "\x00" + strings.ToUpper(strings.TrimSpace(record.Type)) + "\x00" + strings.TrimSpace(record.Content)
+}
+
+func recordNameTypeKey(record domain.Record) string {
+	return strings.TrimSpace(record.Name) + "\x00" + strings.ToUpper(strings.TrimSpace(record.Type))
+}
+
+func ptrDomainForAddr(addr netip.Addr) (string, domain.ZoneKind) {
+	if addr.Is4() {
+		octets := addr.As4()
+		return fmt.Sprintf("%d.%d.%d.%d.in-addr.arpa", octets[3], octets[2], octets[1], octets[0]), domain.ZoneReverseV4
+	}
+
+	hexChars := "0123456789abcdef"
+	bytes16 := addr.As16()
+	labels := make([]string, 0, 34)
+	for i := len(bytes16) - 1; i >= 0; i-- {
+		labels = append(labels, string(hexChars[bytes16[i]&0x0f]), string(hexChars[bytes16[i]>>4]))
+	}
+	labels = append(labels, "ip6", "arpa")
+
+	return strings.Join(labels, "."), domain.ZoneReverseV6
+}
+
+func findBestMatchingReverseZone(ptrDomain string, reverseKind domain.ZoneKind, zones []domain.Zone) (string, bool) {
+	ptrDomain = normalizeDNSName(ptrDomain)
+	if ptrDomain == "" {
+		return "", false
+	}
+
+	bestZone := ""
+	bestZoneOriginal := ""
+	for _, zone := range zones {
+		if zone.Kind != reverseKind {
+			continue
+		}
+
+		zoneName := normalizeDNSName(zone.Name)
+		if zoneName == "" || !dnsNameHasZoneSuffix(ptrDomain, zoneName) {
+			continue
+		}
+
+		if len(zoneName) > len(bestZone) {
+			bestZone = zoneName
+			bestZoneOriginal = strings.TrimSpace(zone.Name)
+		}
+	}
+
+	if bestZoneOriginal == "" {
+		return "", false
+	}
+
+	return bestZoneOriginal, true
+}
+
+func relativeRecordName(name, zone string) string {
+	name = normalizeDNSName(name)
+	zone = normalizeDNSName(zone)
+	if name == "" || zone == "" {
+		return ""
+	}
+	if name == zone {
+		return "@"
+	}
+
+	suffix := "." + zone
+	if !strings.HasSuffix(name, suffix) {
+		return ""
+	}
+
+	relative := strings.TrimSuffix(name, suffix)
+	if relative == "" {
+		return "@"
+	}
+
+	return relative
+}
+
+func absoluteRecordName(recordName, zoneName string) string {
+	recordName = strings.TrimSpace(recordName)
+	zoneName = normalizeDNSName(zoneName)
+	if zoneName == "" {
+		return ""
+	}
+
+	switch {
+	case recordName == "", recordName == "@":
+		return zoneName
+	case strings.HasSuffix(recordName, "."):
+		return normalizeDNSName(recordName)
+	}
+
+	normalizedRecordName := normalizeDNSName(recordName)
+	if normalizedRecordName == zoneName || strings.HasSuffix(normalizedRecordName, "."+zoneName) {
+		return normalizedRecordName
+	}
+
+	return normalizeDNSName(recordName + "." + zoneName)
+}
+
+func ensureTrailingDot(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if strings.HasSuffix(name, ".") {
+		return name
+	}
+	return name + "."
+}
+
+func normalizeDNSName(name string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
+}
+
+func dnsNameHasZoneSuffix(name, zone string) bool {
+	return name == zone || strings.HasSuffix(name, "."+zone)
 }
 
 func writeAuditCSV(writer io.Writer, entries []audit.Entry) error {
