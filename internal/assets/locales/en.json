@@ -163,6 +163,7 @@
   "lint_mx_invalid_hostname": "MX target \"{detail}\" on \"{name}\" does not look like a valid hostname.",
   "lint_ns_invalid_hostname": "NS target \"{detail}\" on \"{name}\" does not look like a valid hostname.",
   "lint_duplicate_record": "Duplicate record: {name} {type} with content \"{detail}\" appears more than once.",
+  "stats_overview": "Statistics",
   "stats_zones": "Zones",
   "stats_records": "Records",
   "stats_templates": "Templates",

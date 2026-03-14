@@ -116,57 +116,72 @@
       {{end}}
     </section>
 
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <div class="stat bg-base-100 rounded-box shadow">
-        <div class="stat-title">{{index .L "stats_zones"}}</div>
-        <div class="stat-value text-primary">{{.StatsZoneCount}}</div>
-      </div>
-      <div class="stat bg-base-100 rounded-box shadow">
-        <div class="stat-title">{{index .L "stats_records"}}</div>
-        <div class="stat-value text-secondary">{{.StatsRecordCount}}</div>
-      </div>
-      {{if .IsAdmin}}
-      <div class="stat bg-base-100 rounded-box shadow">
-        <div class="stat-title">{{index .L "stats_templates"}}</div>
-        <div class="stat-value">{{.StatsTemplateCount}}</div>
-      </div>
-      {{end}}
-      <div class="stat bg-base-100 rounded-box shadow">
-        <div class="stat-title">{{index .L "stats_dnssec"}}</div>
-        <div class="stat-value text-success">{{.StatsDNSSECEnabled}}</div>
-        <div class="stat-desc">{{.StatsDNSSECDisabled}} {{index .L "stats_dnssec_disabled"}}</div>
-      </div>
-    </div>
+    <details
+      id="dashboard-stats-panel"
+      data-collapse-cookie="1"
+      class="collapse bg-base-100 border border-base-300 shadow-md"
+      open
+    >
+      <summary class="collapse-title list-none flex items-center justify-between gap-2 text-xl font-semibold">
+        <span>{{index .L "stats_overview"}}</span>
+        <svg class="collapse-toggle-icon h-5 w-5 opacity-70" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </summary>
+      <div class="collapse-content space-y-4">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div class="stat bg-base-200 rounded-box">
+            <div class="stat-title">{{index .L "stats_zones"}}</div>
+            <div class="stat-value text-primary">{{.StatsZoneCount}}</div>
+          </div>
+          <div class="stat bg-base-200 rounded-box">
+            <div class="stat-title">{{index .L "stats_records"}}</div>
+            <div class="stat-value text-secondary">{{.StatsRecordCount}}</div>
+          </div>
+          {{if .IsAdmin}}
+          <div class="stat bg-base-200 rounded-box">
+            <div class="stat-title">{{index .L "stats_templates"}}</div>
+            <div class="stat-value">{{.StatsTemplateCount}}</div>
+          </div>
+          {{end}}
+          <div class="stat bg-base-200 rounded-box">
+            <div class="stat-title">{{index .L "stats_dnssec"}}</div>
+            <div class="stat-value text-success">{{.StatsDNSSECEnabled}}</div>
+            <div class="stat-desc">{{.StatsDNSSECDisabled}} {{index .L "stats_dnssec_disabled"}}</div>
+          </div>
+        </div>
 
-    {{if .StatsRecentChanges}}
-    <div class="rounded-box bg-base-100 p-4 shadow">
-      <h2 class="text-lg font-semibold mb-3">{{index .L "stats_recent_changes"}}</h2>
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
-          <thead>
-            <tr>
-              <th>{{index .L "audit_timestamp"}}</th>
-              <th>{{index .L "audit_action_col"}}</th>
-              <th>{{index .L "user"}}</th>
-              <th>{{index .L "audit_target"}}</th>
-              <th>{{index .L "audit_detail"}}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .StatsRecentChanges}}
-            <tr>
-              <td class="whitespace-nowrap text-xs opacity-70">{{formatTime .Timestamp}}</td>
-              <td><span class="badge badge-sm badge-outline">{{.Action}}</span></td>
-              <td>{{.User}}</td>
-              <td class="font-mono text-sm">{{.Target}}</td>
-              <td class="text-sm opacity-80 max-w-xs truncate">{{.Detail}}</td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
+        {{if .StatsRecentChanges}}
+        <div class="pt-2">
+          <h3 class="text-lg font-semibold mb-3">{{index .L "stats_recent_changes"}}</h3>
+          <div class="overflow-x-auto rounded-box border border-base-300">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>{{index .L "audit_timestamp"}}</th>
+                  <th>{{index .L "audit_action_col"}}</th>
+                  <th>{{index .L "user"}}</th>
+                  <th>{{index .L "audit_target"}}</th>
+                  <th>{{index .L "audit_detail"}}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{range .StatsRecentChanges}}
+                <tr>
+                  <td class="whitespace-nowrap text-xs opacity-70">{{formatTime .Timestamp}}</td>
+                  <td><span class="badge badge-sm badge-outline">{{.Action}}</span></td>
+                  <td>{{.User}}</td>
+                  <td class="font-mono text-sm">{{.Target}}</td>
+                  <td class="text-sm opacity-80 max-w-xs truncate">{{.Detail}}</td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {{end}}
       </div>
-    </div>
-    {{end}}
+    </details>
 
     <div id="workspace">
       {{template "workspace" .}}
