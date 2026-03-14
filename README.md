@@ -81,6 +81,7 @@ All responses include the following security headers regardless of proxy configu
 - `GO_PDNS_UI_DB_MAX_OPEN_CONNS` (default: `10`)
 - `GO_PDNS_UI_DB_MAX_IDLE_CONNS` (default: `5`)
 - `GO_PDNS_UI_DB_CONN_MAX_LIFETIME_SECONDS` (default: `300`)
+- `GO_PDNS_UI_AUDIT_RETENTION_DAYS` (default: `180`; audit entries older than this are deleted automatically)
 - `GO_PDNS_UI_AUTHZ_OIDC_AUTO_CREATE` (default: `true`; when `false`, only pre-created OIDC users can sign in)
 
 Behavior in `company` mode:
@@ -92,6 +93,7 @@ Behavior in `company` mode:
 - User/subject principals are auto-synced on authenticated requests.
 - Admins can pre-create OIDC principals (without local passwords) in Access Control.
 - If `GO_PDNS_UI_AUTHZ_OIDC_AUTO_CREATE=false`, unknown OIDC users are rejected at login.
+- Audit log retention cleanup runs against the same PostgreSQL DSN when `GO_PDNS_UI_DATABASE_URL` is configured.
 
 Important role note:
 

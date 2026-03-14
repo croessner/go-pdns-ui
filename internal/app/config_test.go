@@ -10,6 +10,7 @@ func TestLoadConfigFromEnvDefaults(t *testing.T) {
 	t.Setenv("GO_PDNS_UI_DB_MAX_OPEN_CONNS", "")
 	t.Setenv("GO_PDNS_UI_DB_MAX_IDLE_CONNS", "")
 	t.Setenv("GO_PDNS_UI_DB_CONN_MAX_LIFETIME_SECONDS", "")
+	t.Setenv("GO_PDNS_UI_AUDIT_RETENTION_DAYS", "")
 	t.Setenv("GO_PDNS_UI_AUTHZ_OIDC_AUTO_CREATE", "")
 	t.Setenv("GO_PDNS_UI_AUTH_OIDC_ONLY", "")
 	t.Setenv("GO_PDNS_UI_FORCE_INSECURE_HTTP", "")
@@ -38,6 +39,9 @@ func TestLoadConfigFromEnvDefaults(t *testing.T) {
 	if cfg.DBConnMaxLifetimeSecs != 300 {
 		t.Fatalf("unexpected conn max lifetime: %d", cfg.DBConnMaxLifetimeSecs)
 	}
+	if cfg.AuditRetentionDays != 180 {
+		t.Fatalf("unexpected audit retention days: %d", cfg.AuditRetentionDays)
+	}
 	if !cfg.OIDCAutoCreate {
 		t.Fatalf("expected oidc auto-create to default to true")
 	}
@@ -63,6 +67,7 @@ func TestLoadConfigFromEnvOverrides(t *testing.T) {
 	t.Setenv("GO_PDNS_UI_DB_MAX_OPEN_CONNS", "20")
 	t.Setenv("GO_PDNS_UI_DB_MAX_IDLE_CONNS", "7")
 	t.Setenv("GO_PDNS_UI_DB_CONN_MAX_LIFETIME_SECONDS", "600")
+	t.Setenv("GO_PDNS_UI_AUDIT_RETENTION_DAYS", "45")
 	t.Setenv("GO_PDNS_UI_AUTHZ_OIDC_AUTO_CREATE", "false")
 	t.Setenv("GO_PDNS_UI_AUTH_OIDC_ONLY", "true")
 	t.Setenv("GO_PDNS_UI_FORCE_INSECURE_HTTP", "true")
@@ -90,6 +95,9 @@ func TestLoadConfigFromEnvOverrides(t *testing.T) {
 	}
 	if cfg.DBConnMaxLifetimeSecs != 600 {
 		t.Fatalf("unexpected conn max lifetime: %d", cfg.DBConnMaxLifetimeSecs)
+	}
+	if cfg.AuditRetentionDays != 45 {
+		t.Fatalf("unexpected audit retention days: %d", cfg.AuditRetentionDays)
 	}
 	if cfg.OIDCAutoCreate {
 		t.Fatalf("expected oidc auto-create to be disabled")

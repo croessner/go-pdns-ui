@@ -337,6 +337,7 @@ func newAuditService(ctx context.Context, config Config, logger *slog.Logger) (a
 		MaxOpenConns:        config.DBMaxOpenConns,
 		MaxIdleConns:        config.DBMaxIdleConns,
 		ConnMaxLifetimeSecs: config.DBConnMaxLifetimeSecs,
+		RetentionDays:       config.AuditRetentionDays,
 	}, logger)
 }
 

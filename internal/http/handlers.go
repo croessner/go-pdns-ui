@@ -3,9 +3,11 @@ package ui
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -27,6 +29,7 @@ const (
 	zonesPerPage           = 10
 	zoneAssignmentsPerPage = 10
 	auditLogPerPage        = 25
+	auditExportPageSize    = 250
 	tabZones               = "zones"
 	tabTemplates           = "templates"
 	tabAccess              = "access"
@@ -210,6 +213,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /logout", h.withRequestLogging(h.requireAuth(h.csrf.RequireSessionToken(h.logout))))
 
 	mux.HandleFunc("GET /", h.withRequestLogging(h.requireAuth(h.dashboard)))
+	mux.HandleFunc("GET /audit/export.csv", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.exportAuditCSV)))
 	mux.HandleFunc("POST /zones", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.createZone))))
 	mux.HandleFunc("POST /zones/{zone}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.deleteZone))))
 	mux.HandleFunc("GET /zones/{zone}/editor", h.withRequestLogging(h.requireAuth(h.zoneEditor)))
@@ -473,6 +477,51 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request, session auth
 	}
 
 	h.render(w, "dashboard.html", state, http.StatusOK)
+}
+
+func (h *Handler) exportAuditCSV(w http.ResponseWriter, r *http.Request, _ auth.Session) {
+	if !h.audit.Enabled() {
+		http.NotFound(w, r)
+		return
+	}
+
+	auditQuery := strings.TrimSpace(r.URL.Query().Get("audit_q"))
+	auditAction := strings.TrimSpace(r.URL.Query().Get("audit_action"))
+
+	var entries []audit.Entry
+	for page := 1; ; page++ {
+		result, err := h.audit.Search(r.Context(), audit.SearchParams{
+			Query:  auditQuery,
+			Action: auditAction,
+			Page:   page,
+			Limit:  auditExportPageSize,
+		})
+		if err != nil {
+			h.internalError(w, r, "failed to export audit csv", err)
+			return
+		}
+
+		entries = append(entries, result.Entries...)
+		if page >= result.TotalPages || len(result.Entries) == 0 {
+			break
+		}
+	}
+
+	var csvBuffer bytes.Buffer
+	if err := writeAuditCSV(&csvBuffer, entries); err != nil {
+		h.internalError(w, r, "failed to generate audit csv", err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set(
+		"Content-Disposition",
+		fmt.Sprintf("attachment; filename=\"audit-log-%s.csv\"", time.Now().UTC().Format("20060102T150405Z")),
+	)
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(csvBuffer.Bytes()); err != nil {
+		h.logger.Warn("audit_csv_write_failed", "error", err)
+	}
 }
 
 func (h *Handler) createZone(w http.ResponseWriter, r *http.Request, session auth.Session) {
@@ -1690,7 +1739,7 @@ func findRecord(records []domain.Record, name, recordType string) (domain.Record
 
 func isDialogRecordType(recordType string) bool {
 	switch strings.ToUpper(strings.TrimSpace(recordType)) {
-	case "TXT", "SRV", "SOA", "CAA", "TLSA":
+	case "TXT", "MX", "SRV", "SOA", "CAA", "TLSA":
 		return true
 	default:
 		return false
@@ -1739,6 +1788,30 @@ func containsType(recordTypes []string, recordType string) bool {
 		}
 	}
 	return false
+}
+
+func writeAuditCSV(writer io.Writer, entries []audit.Entry) error {
+	csvWriter := csv.NewWriter(writer)
+	if err := csvWriter.Write([]string{"timestamp_utc", "action", "user", "role", "auth_source", "target", "detail"}); err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if err := csvWriter.Write([]string{
+			entry.Timestamp.UTC().Format(time.RFC3339),
+			entry.Action,
+			entry.User,
+			entry.Role,
+			entry.AuthSource,
+			entry.Target,
+			entry.Detail,
+		}); err != nil {
+			return err
+		}
+	}
+
+	csvWriter.Flush()
+	return csvWriter.Error()
 }
 
 func parseTTL(raw string) (uint32, error) {

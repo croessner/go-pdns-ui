@@ -15,6 +15,7 @@ const (
 	defaultDBMaxOpen      = 10
 	defaultDBMaxIdle      = 5
 	defaultDBMaxLifetime  = 300
+	defaultAuditRetention = 180
 	defaultOIDCAutoCreate = true
 	defaultOIDCOnlyLogin  = false
 	defaultForceInsecure  = false
@@ -42,6 +43,7 @@ type Config struct {
 	DBMaxOpenConns        int
 	DBMaxIdleConns        int
 	DBConnMaxLifetimeSecs int
+	AuditRetentionDays    int
 	OIDCAutoCreate        bool
 	OIDCOnlyLogin         bool
 	ForceInsecureHTTP     bool
@@ -58,6 +60,7 @@ func LoadConfigFromEnv() Config {
 		DBMaxOpenConns:        getenvIntOrDefault("GO_PDNS_UI_DB_MAX_OPEN_CONNS", defaultDBMaxOpen),
 		DBMaxIdleConns:        getenvIntOrDefault("GO_PDNS_UI_DB_MAX_IDLE_CONNS", defaultDBMaxIdle),
 		DBConnMaxLifetimeSecs: getenvIntOrDefault("GO_PDNS_UI_DB_CONN_MAX_LIFETIME_SECONDS", defaultDBMaxLifetime),
+		AuditRetentionDays:    getenvIntOrDefault("GO_PDNS_UI_AUDIT_RETENTION_DAYS", defaultAuditRetention),
 		OIDCAutoCreate:        getenvBoolOrDefault("GO_PDNS_UI_AUTHZ_OIDC_AUTO_CREATE", defaultOIDCAutoCreate),
 		OIDCOnlyLogin:         getenvBoolOrDefault("GO_PDNS_UI_AUTH_OIDC_ONLY", defaultOIDCOnlyLogin),
 		ForceInsecureHTTP:     getenvBoolOrDefault("GO_PDNS_UI_FORCE_INSECURE_HTTP", defaultForceInsecure),
@@ -93,6 +96,9 @@ func (c Config) withDefaults() Config {
 	}
 	if result.DBConnMaxLifetimeSecs <= 0 {
 		result.DBConnMaxLifetimeSecs = defaultDBMaxLifetime
+	}
+	if result.AuditRetentionDays <= 0 {
+		result.AuditRetentionDays = defaultAuditRetention
 	}
 	result.AvailableRecordTypes = normalizeAvailableRecordTypes(result.AvailableRecordTypes)
 

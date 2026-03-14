@@ -8,9 +8,16 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+)
+
+const (
+	defaultRetentionDays  = 180
+	retentionCheckEvery   = time.Hour
+	retentionRetryBackoff = 5 * time.Minute
 )
 
 // DBConfig holds the connection parameters for the audit database.
@@ -19,12 +26,16 @@ type DBConfig struct {
 	MaxOpenConns        int
 	MaxIdleConns        int
 	ConnMaxLifetimeSecs int
+	RetentionDays       int
 }
 
 // PostgresService persists audit entries in a PostgreSQL table.
 type PostgresService struct {
-	db     *sql.DB
-	logger *slog.Logger
+	db            *sql.DB
+	logger        *slog.Logger
+	retentionDays int
+	nextCleanupAt time.Time
+	cleanupMu     sync.Mutex
 }
 
 // NewPostgresService opens a connection pool, runs migrations and returns a
@@ -61,13 +72,20 @@ func NewPostgresService(ctx context.Context, cfg DBConfig, logger *slog.Logger) 
 		return nil, fmt.Errorf("ping audit database: %w", err)
 	}
 
-	svc := &PostgresService{db: db, logger: logger}
+	svc := &PostgresService{
+		db:            db,
+		logger:        logger,
+		retentionDays: resolveRetentionDays(cfg.RetentionDays),
+	}
 	if err := svc.migrate(ctx); err != nil {
 		db.Close()
 		return nil, err
 	}
+	if err := svc.maybeCleanupExpired(ctx, time.Now().UTC()); err != nil {
+		logger.Warn("audit_log_retention_cleanup_failed", "retention_days", svc.retentionDays, "error", err)
+	}
 
-	logger.Info("audit_log_initialized")
+	logger.Info("audit_log_initialized", "retention_days", svc.retentionDays)
 	return svc, nil
 }
 
@@ -81,12 +99,19 @@ func NewPostgresServiceWithDB(ctx context.Context, db *sql.DB, logger *slog.Logg
 	}
 	logger = logger.With("component", "audit")
 
-	svc := &PostgresService{db: db, logger: logger}
+	svc := &PostgresService{
+		db:            db,
+		logger:        logger,
+		retentionDays: defaultRetentionDays,
+	}
 	if err := svc.migrate(ctx); err != nil {
 		return nil, err
 	}
+	if err := svc.maybeCleanupExpired(ctx, time.Now().UTC()); err != nil {
+		logger.Warn("audit_log_retention_cleanup_failed", "retention_days", svc.retentionDays, "error", err)
+	}
 
-	logger.Info("audit_log_initialized", "shared_pool", true)
+	logger.Info("audit_log_initialized", "shared_pool", true, "retention_days", svc.retentionDays)
 	return svc, nil
 }
 
@@ -104,6 +129,9 @@ func (s *PostgresService) Log(ctx context.Context, entry Entry) error {
 	if ts.IsZero() {
 		ts = time.Now().UTC()
 	}
+	if err := s.maybeCleanupExpired(ctx, ts); err != nil {
+		s.logger.Warn("audit_log_retention_cleanup_failed", "retention_days", s.retentionDays, "error", err)
+	}
 
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO audit_log (id, timestamp, action, username, role, auth_source, target, detail)
@@ -115,6 +143,46 @@ func (s *PostgresService) Log(ctx context.Context, entry Entry) error {
 		return fmt.Errorf("insert audit log: %w", err)
 	}
 
+	return nil
+}
+
+func resolveRetentionDays(value int) int {
+	if value <= 0 {
+		return defaultRetentionDays
+	}
+	return value
+}
+
+func (s *PostgresService) maybeCleanupExpired(ctx context.Context, now time.Time) error {
+	if s.retentionDays <= 0 {
+		return nil
+	}
+	now = now.UTC()
+
+	s.cleanupMu.Lock()
+	if !s.nextCleanupAt.IsZero() && now.Before(s.nextCleanupAt) {
+		s.cleanupMu.Unlock()
+		return nil
+	}
+	s.nextCleanupAt = now.Add(retentionRetryBackoff)
+	s.cleanupMu.Unlock()
+
+	cutoff := now.Add(-time.Duration(s.retentionDays) * 24 * time.Hour)
+	result, err := s.db.ExecContext(ctx, `DELETE FROM audit_log WHERE timestamp < $1`, cutoff)
+	if err != nil {
+		return fmt.Errorf("cleanup audit log retention: %w", err)
+	}
+
+	deletedRows, rowsErr := result.RowsAffected()
+	if rowsErr != nil {
+		s.logger.Warn("audit_log_retention_rows_affected_failed", "error", rowsErr)
+	} else if deletedRows > 0 {
+		s.logger.Info("audit_log_retention_cleanup", "deleted_rows", deletedRows, "retention_days", s.retentionDays)
+	}
+
+	s.cleanupMu.Lock()
+	s.nextCleanupAt = now.Add(retentionCheckEvery)
+	s.cleanupMu.Unlock()
 	return nil
 }
 

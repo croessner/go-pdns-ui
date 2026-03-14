@@ -61,6 +61,23 @@
     details[data-collapse-cookie][open] > summary .collapse-toggle-icon {
       transform: rotate(180deg);
     }
+
+    .audit-cell-top {
+      vertical-align: top;
+    }
+
+    .audit-target-cell {
+      max-inline-size: 22rem;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .audit-detail-cell {
+      max-inline-size: 48rem;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
   </style>
 </head>
 <body class="min-h-screen bg-base-200 text-base-content">
@@ -168,11 +185,11 @@
               <tbody>
                 {{range .StatsRecentChanges}}
                 <tr>
-                  <td class="whitespace-nowrap text-xs opacity-70">{{formatTime .Timestamp}}</td>
-                  <td><span class="badge badge-sm badge-outline">{{.Action}}</span></td>
-                  <td>{{.User}}</td>
-                  <td class="font-mono text-sm">{{.Target}}</td>
-                  <td class="text-sm opacity-80 max-w-xs truncate">{{.Detail}}</td>
+                  <td class="whitespace-nowrap text-xs opacity-70 audit-cell-top">{{formatTime .Timestamp}}</td>
+                  <td class="audit-cell-top"><span class="badge badge-sm badge-outline">{{.Action}}</span></td>
+                  <td class="audit-cell-top">{{.User}}</td>
+                  <td class="font-mono text-sm audit-target-cell audit-cell-top">{{.Target}}</td>
+                  <td class="text-sm opacity-80 audit-detail-cell audit-cell-top">{{.Detail}}</td>
                 </tr>
                 {{end}}
               </tbody>
@@ -281,6 +298,17 @@
       };
     }
 
+    function parseMXValue(raw) {
+      const fields = (raw || "").trim().split(/\s+/).filter(Boolean);
+      if (fields.length < 2) {
+        return { priority: "10", target: "" };
+      }
+      return {
+        priority: fields[0],
+        target: fields.slice(1).join(" ")
+      };
+    }
+
     function parseSOAValue(raw) {
       const fields = (raw || "").trim().split(/\s+/).filter(Boolean);
       if (fields.length < 7) {
@@ -371,6 +399,13 @@
       };
     }
 
+    function defaultMXValues() {
+      return {
+        priority: "10",
+        target: "mail.example.org."
+      };
+    }
+
     function bindRecordDialogs(scope) {
       const rootNode = scope instanceof Element ? scope : document;
       const forms = rootNode.querySelectorAll("form[data-record-form]");
@@ -389,6 +424,7 @@
 
         const dialogByType = {
           TXT: dialogRoot.querySelector("dialog[data-record-dialog='TXT']"),
+          MX: dialogRoot.querySelector("dialog[data-record-dialog='MX']"),
           SRV: dialogRoot.querySelector("dialog[data-record-dialog='SRV']"),
           SOA: dialogRoot.querySelector("dialog[data-record-dialog='SOA']"),
           CAA: dialogRoot.querySelector("dialog[data-record-dialog='CAA']"),
@@ -467,6 +503,20 @@
           srvDialog.showModal();
         };
 
+        const openMXDialog = () => {
+          const mxDialog = dialogByType.MX;
+          if (!mxDialog) return;
+          typeInput.value = "MX";
+          markDialogOpening(mxDialog);
+          const parsed = parseMXValue(contentInput.value);
+          const defaults = defaultMXValues();
+          const priorityInput = mxDialog.querySelector("[data-mx-priority]");
+          const targetInput = mxDialog.querySelector("[data-mx-target]");
+          if (priorityInput) priorityInput.value = parsed.priority || defaults.priority;
+          if (targetInput) targetInput.value = parsed.target || defaults.target;
+          mxDialog.showModal();
+        };
+
         const openSOADialog = () => {
           const soaDialog = dialogByType.SOA;
           if (!soaDialog) return;
@@ -534,6 +584,7 @@
 
         const openDialogByType = {
           TXT: openTXTDialog,
+          MX: openMXDialog,
           SRV: openSRVDialog,
           SOA: openSOADialog,
           CAA: openCAADialog,
@@ -567,6 +618,24 @@
             contentInput.value = encodeTXTValue(txtInput ? txtInput.value : "");
             txtDialog.dataset.recordDialogApplied = "1";
             txtDialog.close();
+            if (isEditingRecord()) {
+              requestRecordSubmit();
+            }
+          });
+        }
+
+        const mxDialog = dialogByType.MX;
+        const mxApplyButton = mxDialog ? mxDialog.querySelector("[data-mx-dialog-apply]") : null;
+        if (mxApplyButton) {
+          mxApplyButton.addEventListener("click", () => {
+            const defaults = defaultMXValues();
+            const priorityInput = mxDialog.querySelector("[data-mx-priority]");
+            const targetInput = mxDialog.querySelector("[data-mx-target]");
+            const priority = priorityInput ? (priorityInput.value.trim() || defaults.priority) : defaults.priority;
+            const target = targetInput ? (targetInput.value.trim() || defaults.target) : defaults.target;
+            contentInput.value = `${priority} ${target}`.trim();
+            mxDialog.dataset.recordDialogApplied = "1";
+            mxDialog.close();
             if (isEditingRecord()) {
               requestRecordSubmit();
             }

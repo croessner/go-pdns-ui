@@ -245,6 +245,7 @@
     {{if .CanEditZones}}
     {{$zoneDialogEdit := and .ZoneRecordForm.Editing .ZoneDialogEditing}}
     {{$showTXTDialog := or (containsType .AvailableRecordTypes "TXT") (and $zoneDialogEdit (eq .ZoneRecordForm.Type "TXT"))}}
+    {{$showMXDialog := or (containsType .AvailableRecordTypes "MX") (and $zoneDialogEdit (eq .ZoneRecordForm.Type "MX"))}}
     {{$showSRVDialog := or (containsType .AvailableRecordTypes "SRV") (and $zoneDialogEdit (eq .ZoneRecordForm.Type "SRV"))}}
     {{$showSOADialog := or (containsType .AvailableRecordTypes "SOA") (and $zoneDialogEdit (eq .ZoneRecordForm.Type "SOA"))}}
     {{$showCAADialog := or (containsType .AvailableRecordTypes "CAA") (and $zoneDialogEdit (eq .ZoneRecordForm.Type "CAA"))}}
@@ -255,7 +256,7 @@
       hx-swap="outerHTML"
       class="grid gap-3 md:grid-cols-6"
       data-record-form="zone"
-      data-auto-open-record-dialog="{{if and $zoneDialogEdit (eq .ZoneRecordForm.Type "TXT")}}TXT{{else if and $zoneDialogEdit (eq .ZoneRecordForm.Type "SRV")}}SRV{{else if and $zoneDialogEdit (eq .ZoneRecordForm.Type "SOA")}}SOA{{else if and $zoneDialogEdit (eq .ZoneRecordForm.Type "CAA")}}CAA{{else if and $zoneDialogEdit (eq .ZoneRecordForm.Type "TLSA")}}TLSA{{end}}"
+      data-auto-open-record-dialog="{{if and $zoneDialogEdit (eq .ZoneRecordForm.Type "TXT")}}TXT{{else if and $zoneDialogEdit (eq .ZoneRecordForm.Type "MX")}}MX{{else if and $zoneDialogEdit (eq .ZoneRecordForm.Type "SRV")}}SRV{{else if and $zoneDialogEdit (eq .ZoneRecordForm.Type "SOA")}}SOA{{else if and $zoneDialogEdit (eq .ZoneRecordForm.Type "CAA")}}CAA{{else if and $zoneDialogEdit (eq .ZoneRecordForm.Type "TLSA")}}TLSA{{end}}"
     >
       <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
       <input type="hidden" name="selected_template" value="{{if .SelectedTemplate}}{{.SelectedTemplate.Name}}{{end}}">
@@ -318,6 +319,34 @@
         <textarea class="textarea textarea-bordered w-full mt-4 min-h-32" data-txt-dialog-input placeholder="{{index .L "txt_dialog_placeholder"}}"></textarea>
         <div class="modal-action">
           <button type="button" class="btn btn-primary" data-txt-dialog-apply>{{index .L "apply"}}</button>
+          <form method="dialog">
+            <button class="btn">{{index .L "cancel"}}</button>
+          </form>
+        </div>
+      </div>
+    <form method="dialog" class="modal-backdrop">
+      <button>{{index .L "close"}}</button>
+    </form>
+    </dialog>
+    {{end}}
+
+    {{if $showMXDialog}}
+    <dialog class="modal" data-record-dialog="MX">
+      <div class="modal-box">
+        <h3 class="font-semibold text-lg">{{index .L "mx_dialog_title"}}</h3>
+        <p class="text-sm opacity-70 mt-1">{{index .L "mx_dialog_hint"}}</p>
+        <div class="grid gap-3 sm:grid-cols-3 mt-4">
+          <label class="floating-label">
+            <span>{{index .L "mx_priority"}}</span>
+            <input type="number" min="0" max="65535" value="10" class="input input-bordered w-full" data-mx-priority>
+          </label>
+          <label class="floating-label sm:col-span-2">
+            <span>{{index .L "mx_target"}}</span>
+            <input type="text" class="input input-bordered w-full" data-mx-target placeholder="mail.example.org.">
+          </label>
+        </div>
+        <div class="modal-action">
+          <button type="button" class="btn btn-primary" data-mx-dialog-apply>{{index .L "apply"}}</button>
           <form method="dialog">
             <button class="btn">{{index .L "cancel"}}</button>
           </form>
