@@ -116,6 +116,58 @@
       {{end}}
     </section>
 
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="stat bg-base-100 rounded-box shadow">
+        <div class="stat-title">{{index .L "stats_zones"}}</div>
+        <div class="stat-value text-primary">{{.StatsZoneCount}}</div>
+      </div>
+      <div class="stat bg-base-100 rounded-box shadow">
+        <div class="stat-title">{{index .L "stats_records"}}</div>
+        <div class="stat-value text-secondary">{{.StatsRecordCount}}</div>
+      </div>
+      {{if .IsAdmin}}
+      <div class="stat bg-base-100 rounded-box shadow">
+        <div class="stat-title">{{index .L "stats_templates"}}</div>
+        <div class="stat-value">{{.StatsTemplateCount}}</div>
+      </div>
+      {{end}}
+      <div class="stat bg-base-100 rounded-box shadow">
+        <div class="stat-title">{{index .L "stats_dnssec"}}</div>
+        <div class="stat-value text-success">{{.StatsDNSSECEnabled}}</div>
+        <div class="stat-desc">{{.StatsDNSSECDisabled}} {{index .L "stats_dnssec_disabled"}}</div>
+      </div>
+    </div>
+
+    {{if .StatsRecentChanges}}
+    <div class="rounded-box bg-base-100 p-4 shadow">
+      <h2 class="text-lg font-semibold mb-3">{{index .L "stats_recent_changes"}}</h2>
+      <div class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>{{index .L "audit_timestamp"}}</th>
+              <th>{{index .L "audit_action_col"}}</th>
+              <th>{{index .L "user"}}</th>
+              <th>{{index .L "audit_target"}}</th>
+              <th>{{index .L "audit_detail"}}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .StatsRecentChanges}}
+            <tr>
+              <td class="whitespace-nowrap text-xs opacity-70">{{formatTime .Timestamp}}</td>
+              <td><span class="badge badge-sm badge-outline">{{.Action}}</span></td>
+              <td>{{.User}}</td>
+              <td class="font-mono text-sm">{{.Target}}</td>
+              <td class="text-sm opacity-80 max-w-xs truncate">{{.Detail}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {{end}}
+
     <div id="workspace">
       {{template "workspace" .}}
     </div>

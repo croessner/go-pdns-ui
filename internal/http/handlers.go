@@ -122,6 +122,12 @@ type viewData struct {
 	AuditNextPage            int
 	AuditHasPrev             bool
 	AuditHasNext             bool
+	StatsZoneCount           int
+	StatsRecordCount         int
+	StatsTemplateCount       int
+	StatsDNSSECEnabled       int
+	StatsDNSSECDisabled      int
+	StatsRecentChanges       []audit.Entry
 }
 
 type HandlerOptions struct {
@@ -1426,6 +1432,32 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 			}
 		} else {
 			data.SelectedTemplate = &tpl
+		}
+	}
+
+	// Dashboard statistics
+	data.StatsZoneCount = len(accessibleZones)
+	data.StatsTemplateCount = len(templates)
+	var totalRecords int
+	var dnssecEnabled int
+	for _, z := range accessibleZones {
+		draft, draftErr := h.zones.GetDraft(ctx, z.Name)
+		if draftErr != nil {
+			continue
+		}
+		totalRecords += len(draft.Records)
+		if draft.DNSSECEnabled {
+			dnssecEnabled++
+		}
+	}
+	data.StatsRecordCount = totalRecords
+	data.StatsDNSSECEnabled = dnssecEnabled
+	data.StatsDNSSECDisabled = data.StatsZoneCount - dnssecEnabled
+
+	if h.audit.Enabled() {
+		recent, recentErr := h.audit.Search(ctx, audit.SearchParams{Page: 1, Limit: 5})
+		if recentErr == nil {
+			data.StatsRecentChanges = recent.Entries
 		}
 	}
 
