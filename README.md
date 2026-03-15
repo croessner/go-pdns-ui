@@ -215,6 +215,7 @@ make docker-run
 make compose-up
 make compose-down
 make compose-logs
+make generate-config   # fill nauthilus.yml from template using .env (required for remote)
 make sbom
 ```
 
@@ -253,7 +254,7 @@ make sbom SBOM_DOCKER_IMAGE=go-pdns-ui:local SBOM_DOCKER_PULL=false
 
 ## Docker Compose (Full Stack)
 
-The repository includes a full local stack in `docker-compose.yml`:
+The repository includes a full stack in `docker-compose.yml`:
 
 - `app` (go-pdns-ui)
 - `pdns` (PowerDNS Authoritative API)
@@ -262,7 +263,9 @@ The repository includes a full local stack in `docker-compose.yml`:
 - `proxy` (single Caddy TLS reverse proxy for `app` + `nauthilus`)
 - `valkey` (Redis-compatible store for Nauthilus sessions/tokens)
 
-Start:
+### Local development
+
+No configuration required. Start directly:
 
 ```bash
 docker compose up -d --build
@@ -274,11 +277,13 @@ Open:
 - PowerDNS API endpoint: `http://localhost:8081/api/v1`
 - Nauthilus OIDC discovery: `https://127.0.0.1.nip.io:8090/.well-known/openid-configuration`
 
+The nip.io domains resolve to `127.0.0.1` without any DNS setup. Caddy issues a self-signed CA certificate automatically (`tls internal`).
+
 Demo logins:
 
 - OIDC-only login via Nauthilus:
-  - `admin` / `admin` (OIDC group `admin` -> app role `admin`)
-  - `user` / `user` (OIDC group `user` -> app role `user`)
+  - `admin` / `admin` (OIDC group `admin` → app role `admin`)
+  - `user` / `user` (OIDC group `user` → app role `user`)
 
 Notes for the integrated OIDC demo:
 
@@ -287,7 +292,38 @@ Notes for the integrated OIDC demo:
 - Nauthilus test users and role attributes are defined in `deploy/nauthilus/logins.csv`.
 - Nauthilus configuration is located at `deploy/nauthilus/nauthilus.yml`.
 
-Stop:
+### Remote deployment
+
+Copy and edit the environment file:
+
+```bash
+cp .env.example .env
+```
+
+Key variables to change (see `.env.example` for the full list):
+
+| Variable | Local default | Remote example |
+|---|---|---|
+| `NAUTHILUS_DOMAIN` | `127.0.0.1.nip.io` | `auth.example.com` |
+| `UI_DOMAIN` | `ui.127.0.0.1.nip.io` | `ui.example.com` |
+| `NAUTHILUS_URL` | `https://127.0.0.1.nip.io:8090` | `https://auth.example.com` |
+| `UI_URL` | `https://ui.127.0.0.1.nip.io:8090` | `https://ui.example.com` |
+| `CADDY_TLS` | `internal` | `you@example.com` |
+| `PROXY_PORT` | `8090` | `443` |
+| `OIDC_INSECURE_SKIP_VERIFY` | `true` | `false` |
+| `PDNS_API_KEY` | `change-me` | strong random value |
+| `OIDC_CLIENT_SECRET` | `go-pdns-ui-secret` | strong random value |
+
+Setting `CADDY_TLS` to an e-mail address makes Caddy obtain a Let's Encrypt certificate automatically via ACME. Ports 80 and 443 must be reachable from the internet for the ACME HTTP-01 challenge.
+
+After editing `.env`, regenerate the Nauthilus configuration (which contains the OIDC issuer and redirect URIs):
+
+```bash
+make generate-config
+docker compose up -d --build
+```
+
+### Stop
 
 ```bash
 docker compose down
