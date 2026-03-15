@@ -258,7 +258,7 @@ The repository includes a full local stack in `docker-compose.yml`:
 - `app` (go-pdns-ui)
 - `pdns` (PowerDNS Authoritative API)
 - `db` (PostgreSQL for PowerDNS + go-pdns-ui access-control persistence)
-- `nauthilus` (`ghcr.io/croessner/nauthilus:v2.0.6`, OIDC IdP demo setup)
+- `nauthilus` (`ghcr.io/croessner/nauthilus:v2.0.11`, OIDC IdP demo setup)
 - `proxy` (single Caddy TLS reverse proxy for `app` + `nauthilus`)
 - `valkey` (Redis-compatible store for Nauthilus sessions/tokens)
 
