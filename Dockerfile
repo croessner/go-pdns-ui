@@ -1,4 +1,4 @@
-FROM golang:1.26 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26 AS builder
 
 WORKDIR /src
 
@@ -7,11 +7,12 @@ COPY . .
 ENV CGO_ENABLED=0
 ENV GOFLAGS=-mod=vendor
 
+ARG TARGETOS TARGETARCH
 ARG VERSION=dev
 ARG COMMIT=none
 ARG BUILD_DATE=unknown
 
-RUN go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" -o /out/go-pdns-ui ./cmd/go-pdns-ui
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" -o /out/go-pdns-ui ./cmd/go-pdns-ui
 
 FROM alpine:3.22
 
