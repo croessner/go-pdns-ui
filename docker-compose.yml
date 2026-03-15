@@ -20,6 +20,9 @@ services:
     image: valkey/valkey:7.2
     container_name: go-pdns-ui-valkey
     restart: unless-stopped
+    # Persistence not needed for session cache; disabling it also
+    # eliminates the vm.overcommit_memory kernel warning.
+    command: ["valkey-server", "--save", ""]
 
   pdns:
     image: powerdns/pdns-auth-49:latest
@@ -73,12 +76,16 @@ services:
         condition: service_started
       nauthilus:
         condition: service_started
+    environment:
+      NAUTHILUS_DOMAIN: ${NAUTHILUS_DOMAIN:-127.0.0.1.nip.io}
+      UI_DOMAIN: ${UI_DOMAIN:-ui.127.0.0.1.nip.io}
+      CADDY_TLS: ${CADDY_TLS:-internal}
     volumes:
       - ./deploy/nauthilus-proxy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     ports:
-      - "8090:443"
+      - "${PROXY_PORT:-8090}:443"
 
   app:
     build:
@@ -94,7 +101,7 @@ services:
       nauthilus:
         condition: service_started
     extra_hosts:
-      - "127.0.0.1.nip.io:host-gateway"
+      - "${NAUTHILUS_DOMAIN:-127.0.0.1.nip.io}:host-gateway"
     environment:
       GO_PDNS_UI_LISTEN_ADDRESS: :8080
       GO_PDNS_UI_LOG_LEVEL: INFO
@@ -106,11 +113,11 @@ services:
       GO_PDNS_UI_DB_MAX_OPEN_CONNS: 10
       GO_PDNS_UI_DB_MAX_IDLE_CONNS: 5
       GO_PDNS_UI_DB_CONN_MAX_LIFETIME_SECONDS: 300
-      GO_PDNS_UI_OIDC_DISCOVERY_URL: https://127.0.0.1.nip.io:8090/.well-known/openid-configuration
-      GO_PDNS_UI_OIDC_INSECURE_SKIP_VERIFY: "true"
+      GO_PDNS_UI_OIDC_DISCOVERY_URL: ${NAUTHILUS_URL:-https://127.0.0.1.nip.io:8090}/.well-known/openid-configuration
+      GO_PDNS_UI_OIDC_INSECURE_SKIP_VERIFY: "${OIDC_INSECURE_SKIP_VERIFY:-true}"
       GO_PDNS_UI_OIDC_CLIENT_ID: go-pdns-ui
-      GO_PDNS_UI_OIDC_CLIENT_SECRET: go-pdns-ui-secret
-      GO_PDNS_UI_OIDC_REDIRECT_URL: https://ui.127.0.0.1.nip.io:8090/auth/oidc/callback
+      GO_PDNS_UI_OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-go-pdns-ui-secret}
+      GO_PDNS_UI_OIDC_REDIRECT_URL: ${UI_URL:-https://ui.127.0.0.1.nip.io:8090}/auth/oidc/callback
       GO_PDNS_UI_OIDC_SCOPES: openid profile email groups
       GO_PDNS_UI_OIDC_ADMIN_GROUP: admin
       GO_PDNS_UI_OIDC_USER_GROUP: user

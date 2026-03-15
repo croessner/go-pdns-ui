@@ -1,19 +1,27 @@
-https://127.0.0.1.nip.io {
-	tls internal
+{
+	# HTTP/3 (QUIC) requires host-level UDP buffer tuning.
+	# Disable it here; HTTP/1.1 and HTTP/2 are sufficient.
+	servers {
+		protocols h1 h2
+	}
+}
+
+https://{$NAUTHILUS_DOMAIN} {
+	# Local:  CADDY_TLS=internal  → self-signed CA
+	# Remote: CADDY_TLS=you@example.com → Let's Encrypt via ACME
+	tls {$CADDY_TLS}
 
 	reverse_proxy nauthilus:8080 {
 		header_up X-Forwarded-Proto https
-		header_up X-Forwarded-Host {host}
 		header_up X-SSL on
 	}
 }
 
-https://ui.127.0.0.1.nip.io {
-	tls internal
+https://{$UI_DOMAIN} {
+	tls {$CADDY_TLS}
 
 	reverse_proxy app:8080 {
 		header_up X-Forwarded-Proto https
-		header_up X-Forwarded-Host {host}
 		header_up X-SSL on
 	}
 }

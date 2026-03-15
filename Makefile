@@ -19,7 +19,7 @@ DOCKER_RUN_CLI_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 	@:
 endif
 
-.PHONY: run test build clean tidy vendor fmt docker-build docker-run compose-up compose-down compose-logs sbom
+.PHONY: run test build clean tidy vendor fmt docker-build docker-run compose-up compose-down compose-logs generate-config sbom
 
 run:
 	@if [ -f .env ]; then set -a; . ./.env; set +a; fi; $(GO) run ./cmd/go-pdns-ui
@@ -61,6 +61,12 @@ compose-down:
 
 compose-logs:
 	docker compose logs -f
+
+generate-config:
+	@if [ ! -f .env ]; then echo "Error: .env not found. Copy .env.example and fill in values."; exit 1; fi
+	@set -a; . ./.env; set +a; \
+	envsubst < deploy/nauthilus/nauthilus.yml.template > deploy/nauthilus/nauthilus.yml
+	@echo "Generated deploy/nauthilus/nauthilus.yml"
 
 sbom:
 	./scripts/sbom.sh \
