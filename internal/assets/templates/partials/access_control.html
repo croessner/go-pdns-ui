@@ -29,6 +29,9 @@
             <span>{{index .L "username"}}</span>
             <input type="text" name="username" class="input input-bordered w-full" placeholder="user-a" required>
           </label>
+          {{if .OIDCOnlyLogin}}
+          <input type="hidden" name="auth_source" value="oidc">
+          {{else}}
           <label class="floating-label">
             <span>{{index .L "auth_source"}}</span>
             <select name="auth_source" class="select select-bordered w-full min-h-12 leading-tight">
@@ -36,10 +39,12 @@
               <option value="oidc">{{index .L "auth_source_oidc"}}</option>
             </select>
           </label>
+          {{end}}
           <label class="floating-label">
             <span>{{index .L "email"}}</span>
             <input type="email" name="email" class="input input-bordered w-full" placeholder="user-a@example.org">
           </label>
+          {{if not .OIDCOnlyLogin}}
           <label class="floating-label">
             <span>{{index .L "initial_password"}}</span>
             <input type="password" name="password" class="input input-bordered w-full" autocomplete="new-password" minlength="8" placeholder="minimum 8 characters">
@@ -48,6 +53,7 @@
             <input type="checkbox" name="must_change_password" class="checkbox checkbox-sm">
             <span class="label-text">{{index .L "must_change_password"}}</span>
           </label>
+          {{end}}
           <button type="submit" class="btn btn-primary">{{index .L "create_user"}}</button>
         </form>
 
@@ -164,6 +170,9 @@
                       <button>{{index $.L "cancel"}}</button>
                     </form>
                   </dialog>
+                  {{else}}
+                  <span class="text-xs opacity-70">{{index $.L "oidc_read_only"}}</span>
+                  {{end}}
                   <form hx-post="/access/principals/{{.ID}}/delete" hx-target="#workspace" hx-swap="outerHTML" class="inline ml-2" hx-confirm="{{index $.L "confirm_delete_user"}}">
                     <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
                     <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
@@ -183,9 +192,6 @@
                       {{index $.L "delete"}}
                     </button>
                   </form>
-                  {{else}}
-                  <span class="text-xs opacity-70">{{index $.L "oidc_read_only"}}</span>
-                  {{end}}
                 </td>
               </tr>
               {{else}}

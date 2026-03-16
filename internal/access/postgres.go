@@ -731,17 +731,6 @@ func (s *PostgresService) DeletePrincipal(ctx context.Context, principalID strin
 		return ErrInvalidInput
 	}
 
-	var authSource string
-	if err := s.db.QueryRowContext(ctx, `SELECT auth_source FROM principals WHERE id = $1`, principalID).Scan(&authSource); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrPrincipalNotFound
-		}
-		return fmt.Errorf("load principal for delete: %w", err)
-	}
-	if authSource != "password" {
-		return ErrInvalidInput
-	}
-
 	result, err := s.db.ExecContext(ctx, `DELETE FROM principals WHERE id = $1`, principalID)
 	if err != nil {
 		return fmt.Errorf("delete principal: %w", err)

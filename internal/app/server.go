@@ -59,25 +59,6 @@ func NewRuntime(ctx context.Context, config Config, logger *slog.Logger, deps De
 		resolvedDeps.TemplateService = newTemplateService(logger)
 	}
 
-	if resolvedDeps.AuthService == nil {
-		authService, err := auth.NewInMemoryServiceFromEnvWithLogger(ctx, logger.With("component", "auth"))
-		if err != nil {
-			return nil, fmt.Errorf("initialize auth: %w", err)
-		}
-		resolvedDeps.AuthService = authService
-	}
-	if resolvedConfig.OIDCOnlyLogin && !resolvedDeps.AuthService.OIDCEnabled() {
-		return nil, errors.New("GO_PDNS_UI_AUTH_OIDC_ONLY=true requires OIDC to be configured")
-	}
-
-	if resolvedDeps.I18nService == nil {
-		i18nService, err := i18n.NewService(assets.Files, "locales", "en")
-		if err != nil {
-			return nil, fmt.Errorf("initialize i18n: %w", err)
-		}
-		resolvedDeps.I18nService = i18nService
-	}
-
 	if resolvedDeps.AccessService == nil {
 		accessService, err := access.NewService(
 			ctx,
@@ -95,6 +76,28 @@ func NewRuntime(ctx context.Context, config Config, logger *slog.Logger, deps De
 			return nil, fmt.Errorf("initialize access control: %w", err)
 		}
 		resolvedDeps.AccessService = accessService
+	}
+
+	if resolvedDeps.AuthService == nil {
+		authService, err := auth.NewInMemoryServiceFromEnvWithLogger(ctx, logger.With("component", "auth"))
+		if err != nil {
+			return nil, fmt.Errorf("initialize auth: %w", err)
+		}
+		resolvedDeps.AuthService = authService
+	}
+	if binder, ok := resolvedDeps.AuthService.(interface{ SetPasswordStore(auth.PasswordStore) }); ok && resolvedDeps.AccessService != nil && resolvedDeps.AccessService.Enabled() {
+		binder.SetPasswordStore(resolvedDeps.AccessService)
+	}
+	if resolvedConfig.OIDCOnlyLogin && !resolvedDeps.AuthService.OIDCEnabled() {
+		return nil, errors.New("GO_PDNS_UI_AUTH_OIDC_ONLY=true requires OIDC to be configured")
+	}
+
+	if resolvedDeps.I18nService == nil {
+		i18nService, err := i18n.NewService(assets.Files, "locales", "en")
+		if err != nil {
+			return nil, fmt.Errorf("initialize i18n: %w", err)
+		}
+		resolvedDeps.I18nService = i18nService
 	}
 
 	if resolvedDeps.AuditService == nil {

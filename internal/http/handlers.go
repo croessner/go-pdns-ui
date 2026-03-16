@@ -117,6 +117,7 @@ type viewData struct {
 	CanViewAudit             bool
 	ActiveTab                string
 	OIDCEnabled              bool
+	OIDCOnlyLogin            bool
 	AccessControlEnabled     bool
 	Companies                []access.Company
 	Principals               []access.Principal
@@ -1389,6 +1390,11 @@ func (h *Handler) createPrincipal(w http.ResponseWriter, r *http.Request, sessio
 	username := strings.TrimSpace(r.FormValue("username"))
 	email := strings.TrimSpace(r.FormValue("email"))
 	mustChangePassword := strings.EqualFold(strings.TrimSpace(r.FormValue("must_change_password")), "on")
+	if h.oidcOnlyLogin && authSource == "password" {
+		h.logger.Warn("principal_create_rejected", "reason", "oidc_only_mode", "requested_auth_source", authSource, "username", username)
+		http.Error(w, "password principals are disabled in oidc-only mode", http.StatusForbidden)
+		return
+	}
 
 	var (
 		principal access.Principal
@@ -1832,6 +1838,11 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 			if err != nil {
 				return viewData{}, err
 			}
+			if h.oidcOnlyLogin {
+				var allowedPrincipalIDs map[string]struct{}
+				principals, allowedPrincipalIDs = filterPrincipalsByAuthSource(principals, "oidc")
+				companyMemberships = filterCompanyMembershipsByPrincipalIDs(companyMemberships, allowedPrincipalIDs)
+			}
 
 			zoneAssignments, err = h.access.ListZoneAssignments(ctx)
 			if err != nil {
@@ -1911,6 +1922,7 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 		CanViewAudit:          canAccessAudit(session.User.Role) && h.audit.Enabled(),
 		ActiveTab:             activeTab,
 		OIDCEnabled:           h.auth.OIDCEnabled(),
+		OIDCOnlyLogin:         h.oidcOnlyLogin,
 		AccessControlEnabled:  h.access.Enabled(),
 		AuditEnabled:          h.audit.Enabled(),
 		ZoneCompanyIDByZone:   zoneCompanyIDByZone,
@@ -2069,6 +2081,44 @@ func filterAssignableZones(zones []domain.Zone, assignedByZone map[string]string
 	}
 
 	return result
+}
+
+func filterPrincipalsByAuthSource(principals []access.Principal, authSource string) ([]access.Principal, map[string]struct{}) {
+	want := strings.ToLower(strings.TrimSpace(authSource))
+	if len(principals) == 0 {
+		return nil, map[string]struct{}{}
+	}
+
+	filtered := make([]access.Principal, 0, len(principals))
+	allowedIDs := make(map[string]struct{}, len(principals))
+	for _, principal := range principals {
+		if strings.ToLower(strings.TrimSpace(principal.AuthSource)) != want {
+			continue
+		}
+		filtered = append(filtered, principal)
+		allowedIDs[principal.ID] = struct{}{}
+	}
+
+	return filtered, allowedIDs
+}
+
+func filterCompanyMembershipsByPrincipalIDs(memberships []access.CompanyMembership, allowedPrincipalIDs map[string]struct{}) []access.CompanyMembership {
+	if len(memberships) == 0 {
+		return nil
+	}
+	if len(allowedPrincipalIDs) == 0 {
+		return []access.CompanyMembership{}
+	}
+
+	filtered := make([]access.CompanyMembership, 0, len(memberships))
+	for _, membership := range memberships {
+		if _, ok := allowedPrincipalIDs[membership.PrincipalID]; !ok {
+			continue
+		}
+		filtered = append(filtered, membership)
+	}
+
+	return filtered
 }
 
 func paginateZones(zones []domain.Zone, page, pageSize int) ([]domain.Zone, int, int) {

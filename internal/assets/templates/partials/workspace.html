@@ -1,9 +1,10 @@
 {{define "workspace"}}
 <div id="workspace" class="space-y-6">
-  {{if .IsAdmin}}
+  {{if or .IsAdmin .CanViewAudit}}
   <section class="card bg-base-100 shadow-md border border-base-300">
     <div class="card-body py-4">
       <div role="tablist" class="tabs tabs-boxed w-full flex-wrap gap-2 bg-base-200/70">
+        {{if .IsAdmin}}
         <form hx-get="/" hx-target="#workspace" hx-swap="outerHTML" class="inline">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
           <input type="hidden" name="page" value="{{.ZonePage}}">
@@ -33,7 +34,8 @@
           <button type="submit" role="tab" class="tab {{if eq .ActiveTab "access"}}tab-active{{end}}">{{index .L "tab_access"}}</button>
         </form>
         {{end}}
-        {{if .AuditEnabled}}
+        {{end}}
+        {{if and .AuditEnabled .CanViewAudit}}
         <form hx-get="/" hx-target="#workspace" hx-swap="outerHTML" class="inline">
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
           <input type="hidden" name="page" value="{{.ZonePage}}">
@@ -49,7 +51,7 @@
   </section>
   {{end}}
 
-  {{if eq .ActiveTab "zones"}}
+  {{if and .CanViewZones (eq .ActiveTab "zones")}}
   <details
     id="zones-overview"
     data-collapse-cookie="1"
@@ -273,7 +275,7 @@
   {{template "access_control" .}}
   {{end}}
 
-  {{if and .IsAdmin .AuditEnabled (eq .ActiveTab "audit")}}
+  {{if and .CanViewAudit .AuditEnabled (eq .ActiveTab "audit")}}
   {{template "audit_log" .}}
   {{end}}
 </div>

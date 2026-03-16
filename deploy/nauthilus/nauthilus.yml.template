@@ -1,0 +1,114 @@
+server:
+  address: "0.0.0.0:8080"
+  max_concurrent_requests: 200
+  instance_name: "nauthilus-go-pdns-ui-demo"
+  basic_auth:
+    enabled: true
+  log:
+    level: "info"
+    json: true
+    add_source: true
+  frontend:
+    enabled: true
+    encryption_secret: "nauthilusfrontendsecret12345"
+    html_static_content_path: "static/templates"
+    language_resources: "server/resources"
+    languages:
+      - "en"
+      - "de"
+    default_language: "en"
+    security_headers:
+      enabled: true
+      content_security_policy: "default-src 'self'; script-src 'self' 'nonce-{{nonce}}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self' https:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self' https: http:"
+      strict_transport_security: "max-age=31536000; includeSubDomains"
+      x_content_type_options: "nosniff"
+      x_frame_options: "DENY"
+      referrer_policy: "no-referrer"
+      permissions_policy: "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+      cross_origin_opener_policy: "same-origin"
+      cross_origin_resource_policy: "same-origin"
+      cross_origin_embedder_policy: "unsafe-none"
+      x_permitted_cross_domain_policies: "none"
+      x_dns_prefetch_control: "off"
+  backends:
+    - "lua"
+  features:
+    - "lua"
+  redis:
+    master:
+      address: "valkey:6379"
+    database_number: 0
+    prefix: "nauthilus:"
+    pool_size: 64
+    idle_pool_size: 16
+    positive_cache_ttl: 1h
+    negative_cache_ttl: 1h
+    password_nonce: "nauthiluspasswordnonce12345"
+    encryption_secret: "nauthilusredissecret12345"
+
+lua:
+  search:
+    - protocol:
+        - "idp"
+        - "oidc"
+      cache_name: "default"
+  config:
+    backend_script_path: "server/lua-plugins.d/backend/testing_csv_backend.lua"
+    init_script_paths:
+      - "server/lua-plugins.d/init/testing_csv_loader.lua"
+    package_path: "server/lua-plugins.d/share/?.lua;server/lua-plugins.d/backend/?.lua;server/lua-plugins.d/init/?.lua"
+    backend_number_of_workers: 16
+    action_number_of_workers: 16
+    feature_vm_pool_size: 24
+    filter_vm_pool_size: 24
+    hook_vm_pool_size: 24
+    queue_length: 0
+
+idp:
+  oidc:
+    enabled: true
+    issuer: "${NAUTHILUS_URL}"
+    signing_keys:
+      - id: "demo"
+        key_file: "/etc/nauthilus/idp-signing-key.pem"
+        active: true
+    clients:
+      - name: "go-pdns-ui Demo"
+        client_id: "go-pdns-ui"
+        client_secret: "${OIDC_CLIENT_SECRET}"
+        redirect_uris:
+          - "${UI_URL}/auth/oidc/callback"
+          - "http://localhost:8080/auth/oidc/callback"
+        post_logout_redirect_uris:
+          - "${UI_URL}/"
+          - "http://localhost:8080/"
+        grant_types:
+          - "authorization_code"
+        token_endpoint_auth_method: "client_secret_basic"
+        scopes:
+          - "openid"
+          - "profile"
+          - "email"
+          - "groups"
+        id_token_claims:
+          mappings:
+            - claim: "preferred_username"
+              attribute: "username"
+              type: "string"
+            - claim: "name"
+              attribute: "name"
+              type: "string"
+            - claim: "email"
+              attribute: "email"
+              type: "string"
+            - claim: "groups"
+              attribute: "groups"
+              type: "string_array"
+        access_token_claims:
+          mappings:
+            - claim: "preferred_username"
+              attribute: "username"
+              type: "string"
+            - claim: "groups"
+              attribute: "groups"
+              type: "string_array"
