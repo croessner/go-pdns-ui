@@ -171,6 +171,9 @@ func (s *PostgresService) FilterZones(ctx context.Context, user auth.User, zones
 		copy(result, zones)
 		return result, nil
 	}
+	if user.Role == auth.RoleAudit {
+		return []domain.Zone{}, nil
+	}
 
 	principal, err := s.SyncPrincipal(ctx, user)
 	if err != nil {
@@ -206,6 +209,9 @@ func (s *PostgresService) CanAccessZone(ctx context.Context, user auth.User, zon
 	if user.Role == auth.RoleAdmin {
 		return true, nil
 	}
+	if user.Role == auth.RoleAudit {
+		return false, nil
+	}
 
 	principal, err := s.SyncPrincipal(ctx, user)
 	if err != nil {
@@ -231,6 +237,107 @@ func (s *PostgresService) CanAccessZone(ctx context.Context, user auth.User, zon
 	}
 
 	return true, nil
+}
+
+func (s *PostgresService) AuthenticatePassword(username, password string) (auth.PasswordPrincipal, error) {
+	username = strings.TrimSpace(username)
+	if username == "" || password == "" {
+		return auth.PasswordPrincipal{}, auth.ErrInvalidCredentials
+	}
+
+	var principal auth.PasswordPrincipal
+	var role string
+
+	err := s.db.QueryRowContext(
+		context.Background(),
+		`SELECT p.id, p.subject, p.username, p.email, p.role, c.must_change_password
+		 FROM principals p
+		 JOIN local_credentials c ON c.principal_id = p.id
+		 WHERE p.auth_source = 'password'
+		   AND p.username = $1
+		   AND c.password_hash = crypt($2, c.password_hash)`,
+		username,
+		password,
+	).Scan(
+		&principal.PrincipalID,
+		&principal.Subject,
+		&principal.Username,
+		&principal.Email,
+		&role,
+		&principal.MustChangePassword,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return auth.PasswordPrincipal{}, auth.ErrInvalidCredentials
+	}
+	if err != nil {
+		return auth.PasswordPrincipal{}, fmt.Errorf("lookup password principal: %w", err)
+	}
+
+	principal.Role = auth.Role(strings.TrimSpace(role))
+	if principal.Role == "" {
+		principal.Role = auth.RoleViewer
+	}
+
+	return principal, nil
+}
+
+func (s *PostgresService) HasPasswordCredentials(username string) (bool, error) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return false, ErrInvalidInput
+	}
+
+	var exists int
+	err := s.db.QueryRowContext(
+		context.Background(),
+		`SELECT 1
+		 FROM principals p
+		 JOIN local_credentials c ON c.principal_id = p.id
+		 WHERE p.auth_source = 'password' AND p.username = $1
+		 LIMIT 1`,
+		username,
+	).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("check password credentials existence: %w", err)
+	}
+
+	return true, nil
+}
+
+func (s *PostgresService) ChangePassword(principalID, currentPassword, newPassword string) error {
+	principalID = strings.TrimSpace(principalID)
+	if principalID == "" || currentPassword == "" {
+		return auth.ErrInvalidCredentials
+	}
+	if err := validateLocalPassword(newPassword); err != nil {
+		return err
+	}
+
+	result, err := s.db.ExecContext(
+		context.Background(),
+		`UPDATE local_credentials
+		 SET password_hash = crypt($3, gen_salt('bf')), must_change_password = FALSE, updated_at = NOW()
+		 WHERE principal_id = $1
+		   AND password_hash = crypt($2, password_hash)`,
+		principalID,
+		currentPassword,
+		newPassword,
+	)
+	if err != nil {
+		return fmt.Errorf("update password hash: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check password update result: %w", err)
+	}
+	if affected == 0 {
+		return auth.ErrInvalidCredentials
+	}
+
+	return nil
 }
 
 func (s *PostgresService) ListCompanies(ctx context.Context) ([]Company, error) {
@@ -412,6 +519,166 @@ func (s *PostgresService) CreatePrincipal(ctx context.Context, authSource, subje
 	return s.getPrincipalByIdentity(ctx, authSource, subject)
 }
 
+func (s *PostgresService) CreatePasswordPrincipal(ctx context.Context, username, email, password string, mustChangePassword bool) (Principal, error) {
+	username = strings.TrimSpace(username)
+	email = strings.TrimSpace(email)
+	password = strings.TrimSpace(password)
+	if username == "" {
+		return Principal{}, ErrInvalidInput
+	}
+	if err := validateLocalPassword(password); err != nil {
+		return Principal{}, ErrInvalidInput
+	}
+
+	subject := "local:" + username
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Principal{}, fmt.Errorf("start create password principal transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	insertID, err := randomID()
+	if err != nil {
+		return Principal{}, fmt.Errorf("create principal id: %w", err)
+	}
+
+	var principalID string
+	err = tx.QueryRowContext(
+		ctx,
+		`INSERT INTO principals (id, auth_source, subject, username, email, role)
+		 VALUES ($1, 'password', $2, $3, $4, $5)
+		 ON CONFLICT (auth_source, subject)
+		 DO UPDATE SET username = EXCLUDED.username, email = EXCLUDED.email, updated_at = NOW()
+		 RETURNING id`,
+		insertID,
+		subject,
+		username,
+		email,
+		string(auth.RoleUser),
+	).Scan(&principalID)
+	if err != nil {
+		return Principal{}, fmt.Errorf("upsert password principal: %w", err)
+	}
+
+	_, err = tx.ExecContext(
+		ctx,
+		`INSERT INTO local_credentials (principal_id, password_hash, must_change_password)
+		 VALUES ($1, crypt($2, gen_salt('bf')), $3)
+		 ON CONFLICT (principal_id)
+		 DO UPDATE
+		 SET password_hash = crypt($2, gen_salt('bf')), must_change_password = EXCLUDED.must_change_password, updated_at = NOW()`,
+		principalID,
+		password,
+		mustChangePassword,
+	)
+	if err != nil {
+		return Principal{}, fmt.Errorf("upsert password credentials: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Principal{}, fmt.Errorf("commit password principal transaction: %w", err)
+	}
+
+	return s.getPrincipalByIdentity(ctx, "password", subject)
+}
+
+func (s *PostgresService) UpdatePrincipal(ctx context.Context, principalID, username, email string) error {
+	principalID = strings.TrimSpace(principalID)
+	username = strings.TrimSpace(username)
+	email = strings.TrimSpace(email)
+	if principalID == "" || username == "" {
+		return ErrInvalidInput
+	}
+
+	var authSource string
+	if err := s.db.QueryRowContext(ctx, `SELECT auth_source FROM principals WHERE id = $1`, principalID).Scan(&authSource); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPrincipalNotFound
+		}
+		return fmt.Errorf("load principal for update: %w", err)
+	}
+	if authSource != "password" {
+		return ErrInvalidInput
+	}
+
+	var duplicate int
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT 1
+		 FROM principals
+		 WHERE auth_source = $1 AND username = $2 AND id <> $3
+		 LIMIT 1`,
+		authSource,
+		username,
+		principalID,
+	).Scan(&duplicate)
+	if err == nil {
+		return ErrInvalidInput
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("check principal username uniqueness: %w", err)
+	}
+
+	result, err := s.db.ExecContext(
+		ctx,
+		`UPDATE principals
+		 SET username = $2, email = $3, updated_at = NOW()
+		 WHERE id = $1`,
+		principalID,
+		username,
+		email,
+	)
+	if err != nil {
+		return fmt.Errorf("update principal: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err == nil && affected == 0 {
+		return ErrPrincipalNotFound
+	}
+
+	return nil
+}
+
+func (s *PostgresService) ResetPrincipalPassword(ctx context.Context, principalID, password string, mustChangePassword bool) error {
+	principalID = strings.TrimSpace(principalID)
+	password = strings.TrimSpace(password)
+	if principalID == "" {
+		return ErrInvalidInput
+	}
+	if err := validateLocalPassword(password); err != nil {
+		return ErrInvalidInput
+	}
+
+	var authSource string
+	if err := s.db.QueryRowContext(ctx, `SELECT auth_source FROM principals WHERE id = $1`, principalID).Scan(&authSource); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPrincipalNotFound
+		}
+		return fmt.Errorf("load principal for password reset: %w", err)
+	}
+	if authSource != "password" {
+		return ErrInvalidInput
+	}
+
+	_, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO local_credentials (principal_id, password_hash, must_change_password)
+		 VALUES ($1, crypt($2, gen_salt('bf')), $3)
+		 ON CONFLICT (principal_id)
+		 DO UPDATE
+		 SET password_hash = crypt($2, gen_salt('bf')), must_change_password = EXCLUDED.must_change_password, updated_at = NOW()`,
+		principalID,
+		password,
+		mustChangePassword,
+	)
+	if err != nil {
+		return fmt.Errorf("reset principal password: %w", err)
+	}
+
+	return nil
+}
+
 func (s *PostgresService) CreateCompany(ctx context.Context, name string) (Company, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -461,6 +728,17 @@ func (s *PostgresService) CreateCompany(ctx context.Context, name string) (Compa
 func (s *PostgresService) DeletePrincipal(ctx context.Context, principalID string) error {
 	principalID = strings.TrimSpace(principalID)
 	if principalID == "" {
+		return ErrInvalidInput
+	}
+
+	var authSource string
+	if err := s.db.QueryRowContext(ctx, `SELECT auth_source FROM principals WHERE id = $1`, principalID).Scan(&authSource); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPrincipalNotFound
+		}
+		return fmt.Errorf("load principal for delete: %w", err)
+	}
+	if authSource != "password" {
 		return ErrInvalidInput
 	}
 
@@ -580,13 +858,14 @@ func (s *PostgresService) UnassignZone(ctx context.Context, zoneName string) err
 
 func (s *PostgresService) migrate(ctx context.Context) error {
 	queries := []string{
+		`CREATE EXTENSION IF NOT EXISTS pgcrypto`,
 		`CREATE TABLE IF NOT EXISTS principals (
 			id TEXT PRIMARY KEY,
 			auth_source TEXT NOT NULL,
 			subject TEXT NOT NULL,
 			username TEXT NOT NULL,
 			email TEXT NOT NULL DEFAULT '',
-			role TEXT NOT NULL CHECK (role IN ('admin', 'user', 'viewer')),
+			role TEXT NOT NULL CHECK (role IN ('admin', 'user', 'audit', 'viewer')),
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			UNIQUE (auth_source, subject)
@@ -602,6 +881,12 @@ func (s *PostgresService) migrate(ctx context.Context) error {
 			principal_id TEXT NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			PRIMARY KEY (company_id, principal_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS local_credentials (
+			principal_id TEXT PRIMARY KEY REFERENCES principals(id) ON DELETE CASCADE,
+			password_hash TEXT NOT NULL,
+			must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS zone_company_assignments (
 			zone_name TEXT PRIMARY KEY,
@@ -619,7 +904,7 @@ func (s *PostgresService) migrate(ctx context.Context) error {
 					NULL;
 				END;
 				ALTER TABLE principals
-					ADD CONSTRAINT principals_role_check CHECK (role IN ('admin', 'user', 'viewer'));
+					ADD CONSTRAINT principals_role_check CHECK (role IN ('admin', 'user', 'audit', 'viewer'));
 			END IF;
 		END
 		$$`,
@@ -760,6 +1045,13 @@ func (s *PostgresService) existsPrincipal(ctx context.Context, principalID strin
 	}
 
 	return true, nil
+}
+
+func validateLocalPassword(password string) error {
+	if len(strings.TrimSpace(password)) < 8 {
+		return auth.ErrInvalidPassword
+	}
+	return nil
 }
 
 func randomID() (string, error) {

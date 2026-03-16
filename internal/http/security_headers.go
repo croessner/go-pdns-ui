@@ -32,7 +32,7 @@ type SecurityHeaders struct {
 func NewSecurityHeaders() *SecurityHeaders {
 	cspTemplate := strings.Join([]string{
 		"default-src 'self'",
-		"script-src 'nonce-{nonce}' https://cdn.jsdelivr.net https://unpkg.com",
+		"script-src 'self' 'nonce-{nonce}' https://cdn.jsdelivr.net https://unpkg.com",
 		"style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
 		"img-src 'self' data:",
 		"font-src 'self'",

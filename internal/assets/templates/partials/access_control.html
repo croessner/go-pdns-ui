@@ -16,7 +16,7 @@
 
     <section class="space-y-3">
       <h3 class="text-lg font-semibold">{{index .L "user_management"}}</h3>
-      <div class="grid gap-4 xl:grid-cols-[minmax(280px,360px)_1fr]">
+      <div class="grid gap-4">
         <form hx-post="/access/principals" hx-target="#workspace" hx-swap="outerHTML" class="grid gap-2">
           <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
           <input type="hidden" name="selected_zone" value="{{if .SelectedZone}}{{.SelectedZone.Name}}{{end}}">
@@ -30,8 +30,23 @@
             <input type="text" name="username" class="input input-bordered w-full" placeholder="user-a" required>
           </label>
           <label class="floating-label">
+            <span>{{index .L "auth_source"}}</span>
+            <select name="auth_source" class="select select-bordered w-full min-h-12 leading-tight">
+              <option value="password">{{index .L "auth_source_password"}}</option>
+              <option value="oidc">{{index .L "auth_source_oidc"}}</option>
+            </select>
+          </label>
+          <label class="floating-label">
             <span>{{index .L "email"}}</span>
             <input type="email" name="email" class="input input-bordered w-full" placeholder="user-a@example.org">
+          </label>
+          <label class="floating-label">
+            <span>{{index .L "initial_password"}}</span>
+            <input type="password" name="password" class="input input-bordered w-full" autocomplete="new-password" minlength="8" placeholder="minimum 8 characters">
+          </label>
+          <label class="label cursor-pointer justify-start gap-3">
+            <input type="checkbox" name="must_change_password" class="checkbox checkbox-sm">
+            <span class="label-text">{{index .L "must_change_password"}}</span>
           </label>
           <button type="submit" class="btn btn-primary">{{index .L "create_user"}}</button>
         </form>
@@ -50,12 +65,106 @@
             <tbody>
               {{range .Principals}}
               <tr>
-                <td class="font-medium">{{.Username}}</td>
-                <td>{{if .Email}}{{.Email}}{{else}}-{{end}}</td>
+                <td>
+                  {{if eq .AuthSource "password"}}
+                  <input
+                    type="text"
+                    name="username"
+                    form="principal-update-{{.ID}}"
+                    value="{{.Username}}"
+                    class="input input-bordered input-sm w-full min-w-40"
+                    required
+                  >
+                  {{else}}
+                  <span class="font-medium">{{.Username}}</span>
+                  {{end}}
+                </td>
+                <td>
+                  {{if eq .AuthSource "password"}}
+                  <input
+                    type="email"
+                    name="email"
+                    form="principal-update-{{.ID}}"
+                    value="{{.Email}}"
+                    class="input input-bordered input-sm w-full min-w-56"
+                  >
+                  {{else}}
+                  {{if .Email}}{{.Email}}{{else}}-{{end}}
+                  {{end}}
+                </td>
                 <td><span class="badge badge-outline badge-sm">{{.Role}}</span></td>
                 <td>{{.AuthSource}}</td>
-                <td class="text-right">
-                  <form hx-post="/access/principals/{{.ID}}/delete" hx-target="#workspace" hx-swap="outerHTML" class="inline" hx-confirm="{{index $.L "confirm_delete_user"}}">
+                <td class="text-right whitespace-nowrap">
+                  {{if eq .AuthSource "password"}}
+                  <form
+                    id="principal-update-{{.ID}}"
+                    hx-post="/access/principals/{{.ID}}/update"
+                    hx-target="#workspace"
+                    hx-swap="outerHTML"
+                    class="inline"
+                  >
+                    <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                    <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
+                    <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
+                    <input type="hidden" name="q" value="{{$.ZoneQuery}}">
+                    <input type="hidden" name="page" value="{{$.ZonePage}}">
+                    <input type="hidden" name="zone_assignment_page" value="{{$.ZoneAssignmentPage}}">
+                    <input type="hidden" name="tab" value="access">
+                    <button type="submit" class="btn btn-primary btn-xs">{{index $.L "save_user"}}</button>
+                  </form>
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-xs ml-2"
+                    data-open-modal-id="principal-reset-password-modal-{{.ID}}"
+                  >
+                    {{index $.L "reset_password"}}
+                  </button>
+                  <dialog id="principal-reset-password-modal-{{.ID}}" class="modal">
+                    <div class="modal-box max-w-md">
+                      <h3 class="font-semibold text-lg">{{index $.L "reset_password"}}</h3>
+                      <p class="text-sm opacity-70 mt-1">{{.Username}}</p>
+                      <form
+                        id="principal-reset-password-form-{{.ID}}"
+                        hx-post="/access/principals/{{.ID}}/reset-password"
+                        hx-target="#workspace"
+                        hx-swap="outerHTML"
+                        class="grid gap-3 mt-4"
+                      >
+                        <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
+                        <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
+                        <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
+                        <input type="hidden" name="q" value="{{$.ZoneQuery}}">
+                        <input type="hidden" name="page" value="{{$.ZonePage}}">
+                        <input type="hidden" name="zone_assignment_page" value="{{$.ZoneAssignmentPage}}">
+                        <input type="hidden" name="tab" value="access">
+                        <label class="floating-label">
+                          <span>{{index $.L "password"}}</span>
+                          <input
+                            type="password"
+                            name="password"
+                            class="input input-bordered w-full"
+                            minlength="8"
+                            required
+                            data-modal-autofocus="1"
+                          >
+                        </label>
+                        <label class="label cursor-pointer justify-start gap-3">
+                          <input type="checkbox" name="must_change_password" class="checkbox checkbox-sm" checked>
+                          <span class="label-text">{{index $.L "must_change_password"}}</span>
+                        </label>
+                      </form>
+                      <div class="modal-action">
+                        <button type="submit" form="principal-reset-password-form-{{.ID}}" class="btn btn-primary">{{index $.L "save_user"}}</button>
+                        <form method="dialog">
+                          <button class="btn">{{index $.L "cancel"}}</button>
+                        </form>
+                      </div>
+                    </div>
+                    <form method="dialog" class="modal-backdrop">
+                      <button>{{index $.L "cancel"}}</button>
+                    </form>
+                  </dialog>
+                  <form hx-post="/access/principals/{{.ID}}/delete" hx-target="#workspace" hx-swap="outerHTML" class="inline ml-2" hx-confirm="{{index $.L "confirm_delete_user"}}">
                     <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
                     <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
                     <input type="hidden" name="selected_template" value="{{if $.SelectedTemplate}}{{$.SelectedTemplate.Name}}{{end}}">
@@ -74,6 +183,9 @@
                       {{index $.L "delete"}}
                     </button>
                   </form>
+                  {{else}}
+                  <span class="text-xs opacity-70">{{index $.L "oidc_read_only"}}</span>
+                  {{end}}
                 </td>
               </tr>
               {{else}}

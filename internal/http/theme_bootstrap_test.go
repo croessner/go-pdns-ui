@@ -31,10 +31,8 @@ func TestLoginPageThemeBootstrapRegression(t *testing.T) {
 	body := rec.Body.String()
 	assertContainsAll(t, body,
 		`window.__goPDNSUITheme = { applyTheme, resolveTheme };`,
-		`window.addEventListener("DOMContentLoaded", () => {`,
 		`<body class="min-h-screen bg-base-200 text-base-content">`,
-		`const next = current === "dark" ? "light" : "dark";`,
-		`applyTheme(next);`,
+		`<script src="/assets/login.js" defer></script>`,
 	)
 	assertThemeBootstrapBeforeStylesheet(t, body)
 }
@@ -61,10 +59,8 @@ func TestDashboardPageThemeBootstrapRegression(t *testing.T) {
 	body := rec.Body.String()
 	assertContainsAll(t, body,
 		`window.__goPDNSUITheme = { applyTheme, resolveTheme };`,
-		`window.addEventListener("DOMContentLoaded", () => {`,
 		`<body class="min-h-screen bg-base-200 text-base-content">`,
-		`const next = current === "dark" ? "light" : "dark";`,
-		`applyTheme(next);`,
+		`<script src="/assets/dashboard.js" defer></script>`,
 		`id="zone-search-input"`,
 		`type="submit" class="btn btn-primary join-item">Search</button>`,
 	)
@@ -112,6 +108,32 @@ func TestPasswordLoginRouteBlockedWhenOIDCOnly(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "Local password login is disabled.") {
 		t.Fatalf("expected no oidc-only login hint in response")
+	}
+}
+
+func TestStaticScriptAssetsAreServed(t *testing.T) {
+	t.Parallel()
+
+	mux, _ := newThemeTestMux(t)
+
+	loginReq := httptest.NewRequest(http.MethodGet, "/assets/login.js", nil)
+	loginRec := httptest.NewRecorder()
+	mux.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("expected login.js status %d, got %d", http.StatusOK, loginRec.Code)
+	}
+	if !strings.Contains(loginRec.Body.String(), "const themeController = window.__goPDNSUITheme || null;") {
+		t.Fatalf("expected login.js payload to be served")
+	}
+
+	dashboardReq := httptest.NewRequest(http.MethodGet, "/assets/dashboard.js", nil)
+	dashboardRec := httptest.NewRecorder()
+	mux.ServeHTTP(dashboardRec, dashboardReq)
+	if dashboardRec.Code != http.StatusOK {
+		t.Fatalf("expected dashboard.js status %d, got %d", http.StatusOK, dashboardRec.Code)
+	}
+	if !strings.Contains(dashboardRec.Body.String(), "document.body.addEventListener(\"htmx:afterSwap\"") {
+		t.Fatalf("expected dashboard.js payload to be served")
 	}
 }
 

@@ -55,6 +55,18 @@ func (s *accessStub) CanAccessZone(_ context.Context, _ auth.User, zoneName stri
 	return s.canAccessFn(zoneName), nil
 }
 
+func (s *accessStub) AuthenticatePassword(string, string) (auth.PasswordPrincipal, error) {
+	return auth.PasswordPrincipal{}, errors.New("not implemented")
+}
+
+func (s *accessStub) HasPasswordCredentials(string) (bool, error) {
+	return false, errors.New("not implemented")
+}
+
+func (s *accessStub) ChangePassword(string, string, string) error {
+	return errors.New("not implemented")
+}
+
 func (s *accessStub) ListCompanies(context.Context) ([]access.Company, error) {
 	return nil, errors.New("not implemented")
 }
@@ -73,6 +85,18 @@ func (s *accessStub) ListZoneAssignments(context.Context) ([]access.ZoneAssignme
 
 func (s *accessStub) CreatePrincipal(context.Context, string, string, string, string) (access.Principal, error) {
 	return access.Principal{}, errors.New("not implemented")
+}
+
+func (s *accessStub) CreatePasswordPrincipal(context.Context, string, string, string, bool) (access.Principal, error) {
+	return access.Principal{}, errors.New("not implemented")
+}
+
+func (s *accessStub) UpdatePrincipal(context.Context, string, string, string) error {
+	return errors.New("not implemented")
+}
+
+func (s *accessStub) ResetPrincipalPassword(context.Context, string, string, bool) error {
+	return errors.New("not implemented")
 }
 
 func (s *accessStub) DeletePrincipal(context.Context, string) error {
@@ -252,28 +276,51 @@ func TestCanEditZones(t *testing.T) {
 	if canEditZones(auth.RoleViewer) {
 		t.Fatalf("expected viewer to be read-only")
 	}
+	if canEditZones(auth.RoleAudit) {
+		t.Fatalf("expected audit role to be read-only")
+	}
+}
+
+func TestCanAccessAudit(t *testing.T) {
+	t.Parallel()
+
+	if !canAccessAudit(auth.RoleAdmin) {
+		t.Fatalf("expected admin to have audit access")
+	}
+	if !canAccessAudit(auth.RoleAudit) {
+		t.Fatalf("expected audit role to have audit access")
+	}
+	if canAccessAudit(auth.RoleUser) {
+		t.Fatalf("expected user to have no dedicated audit access")
+	}
+	if canAccessAudit(auth.RoleViewer) {
+		t.Fatalf("expected viewer to have no audit access")
+	}
 }
 
 func TestNormalizeWorkspaceTab(t *testing.T) {
 	t.Parallel()
 
-	if got := normalizeWorkspaceTab("templates", true, true, false); got != tabTemplates {
+	if got := normalizeWorkspaceTab("templates", auth.RoleAdmin, true, false); got != tabTemplates {
 		t.Fatalf("expected templates tab, got %q", got)
 	}
-	if got := normalizeWorkspaceTab("access", true, true, false); got != tabAccess {
+	if got := normalizeWorkspaceTab("access", auth.RoleAdmin, true, false); got != tabAccess {
 		t.Fatalf("expected access tab, got %q", got)
 	}
-	if got := normalizeWorkspaceTab("access", true, false, false); got != tabZones {
+	if got := normalizeWorkspaceTab("access", auth.RoleAdmin, false, false); got != tabZones {
 		t.Fatalf("expected zones fallback when access control is disabled, got %q", got)
 	}
-	if got := normalizeWorkspaceTab("templates", false, true, false); got != tabZones {
+	if got := normalizeWorkspaceTab("templates", auth.RoleUser, true, false); got != tabZones {
 		t.Fatalf("expected zones fallback for non-admin, got %q", got)
 	}
-	if got := normalizeWorkspaceTab("audit", true, false, true); got != tabAudit {
+	if got := normalizeWorkspaceTab("audit", auth.RoleAdmin, false, true); got != tabAudit {
 		t.Fatalf("expected audit tab, got %q", got)
 	}
-	if got := normalizeWorkspaceTab("audit", true, false, false); got != tabZones {
+	if got := normalizeWorkspaceTab("audit", auth.RoleAdmin, false, false); got != tabZones {
 		t.Fatalf("expected zones fallback when audit is disabled, got %q", got)
+	}
+	if got := normalizeWorkspaceTab("zones", auth.RoleAudit, true, true); got != tabAudit {
+		t.Fatalf("expected audit role to be forced to audit tab, got %q", got)
 	}
 }
 

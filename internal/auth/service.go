@@ -18,10 +18,27 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrInvalidSession     = errors.New("invalid session")
 	ErrInvalidOIDCCode    = errors.New("invalid oidc callback payload")
+	ErrInvalidPassword    = errors.New("invalid password")
 )
+
+type PasswordPrincipal struct {
+	PrincipalID        string
+	Subject            string
+	Username           string
+	Email              string
+	Role               Role
+	MustChangePassword bool
+}
+
+type PasswordStore interface {
+	AuthenticatePassword(username, password string) (PasswordPrincipal, error)
+	HasPasswordCredentials(username string) (bool, error)
+	ChangePassword(principalID, currentPassword, newPassword string) error
+}
 
 type Service interface {
 	LoginWithPassword(username, password string) (Session, error)
+	ChangePassword(sessionID, currentPassword, newPassword string) error
 	OIDCEnabled() bool
 	ShowDefaultCredentialsHint() bool
 	BeginOIDCAuth() (string, error)
@@ -39,10 +56,11 @@ type Service interface {
 type InMemoryService struct {
 	mu sync.RWMutex
 
-	username string
-	password string
-	oidc     *oidcProvider
-	logger   *slog.Logger
+	username      string
+	password      string
+	oidc          *oidcProvider
+	passwordStore PasswordStore
+	logger        *slog.Logger
 	// showDefaultCredentialsHint indicates that local auth uses the startup fallback defaults.
 	showDefaultCredentialsHint bool
 	// inactivityTimeout is the maximum time a session may be idle before it is
@@ -117,8 +135,49 @@ func NewInMemoryServiceFromEnvWithLogger(ctx context.Context, logger *slog.Logge
 }
 
 func (s *InMemoryService) LoginWithPassword(username, password string) (Session, error) {
-	if strings.TrimSpace(username) != s.username || password != s.password {
-		s.logger.Warn("password_login_failed", "username", strings.TrimSpace(username))
+	normalizedUsername := strings.TrimSpace(username)
+	if normalizedUsername == "" {
+		s.logger.Warn("password_login_failed", "username", normalizedUsername)
+		return Session{}, ErrInvalidCredentials
+	}
+
+	s.mu.RLock()
+	passwordStore := s.passwordStore
+	s.mu.RUnlock()
+	if passwordStore != nil {
+		principal, err := passwordStore.AuthenticatePassword(normalizedUsername, password)
+		if err == nil {
+			user := User{
+				PrincipalID:        principal.PrincipalID,
+				Subject:            principal.Subject,
+				Username:           principal.Username,
+				Email:              principal.Email,
+				AuthSource:         "password",
+				Role:               principal.Role,
+				MustChangePassword: principal.MustChangePassword,
+			}
+
+			session := s.newSession(user, "")
+			s.logger.Info("password_login_succeeded", "username", user.Username, "role", user.Role)
+			return session, nil
+		}
+		if !errors.Is(err, ErrInvalidCredentials) {
+			s.logger.Warn("password_store_authentication_failed", "username", normalizedUsername, "error", err)
+		}
+
+		hasCredentials, lookupErr := passwordStore.HasPasswordCredentials(normalizedUsername)
+		if lookupErr != nil {
+			s.logger.Warn("password_store_credentials_lookup_failed", "username", normalizedUsername, "error", lookupErr)
+			return Session{}, ErrInvalidCredentials
+		}
+		if hasCredentials {
+			s.logger.Warn("password_login_failed", "username", normalizedUsername)
+			return Session{}, ErrInvalidCredentials
+		}
+	}
+
+	if normalizedUsername != s.username || password != s.password {
+		s.logger.Warn("password_login_failed", "username", normalizedUsername)
 		return Session{}, ErrInvalidCredentials
 	}
 
@@ -134,12 +193,56 @@ func (s *InMemoryService) LoginWithPassword(username, password string) (Session,
 	return session, nil
 }
 
+func (s *InMemoryService) ChangePassword(sessionID, currentPassword, newPassword string) error {
+	session, ok := s.GetSession(sessionID)
+	if !ok {
+		return ErrInvalidSession
+	}
+	if !strings.EqualFold(strings.TrimSpace(session.User.AuthSource), "password") {
+		return ErrInvalidCredentials
+	}
+	if err := validateNewPassword(newPassword); err != nil {
+		return err
+	}
+
+	s.mu.RLock()
+	passwordStore := s.passwordStore
+	s.mu.RUnlock()
+	if passwordStore != nil && strings.TrimSpace(session.User.PrincipalID) != "" {
+		if err := passwordStore.ChangePassword(session.User.PrincipalID, currentPassword, newPassword); err != nil {
+			return err
+		}
+		s.clearMustChangePassword(session.ID)
+		return nil
+	}
+
+	s.mu.RLock()
+	staticUsername := s.username
+	staticPassword := s.password
+	s.mu.RUnlock()
+	if strings.TrimSpace(session.User.Username) != staticUsername || currentPassword != staticPassword {
+		return ErrInvalidCredentials
+	}
+	s.mu.Lock()
+	s.password = newPassword
+	s.mu.Unlock()
+	s.clearMustChangePassword(session.ID)
+
+	return nil
+}
+
 func (s *InMemoryService) OIDCEnabled() bool {
 	return s.oidc != nil
 }
 
 func (s *InMemoryService) ShowDefaultCredentialsHint() bool {
 	return s.showDefaultCredentialsHint
+}
+
+func (s *InMemoryService) SetPasswordStore(store PasswordStore) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.passwordStore = store
 }
 
 func (s *InMemoryService) BeginOIDCAuth() (string, error) {
@@ -232,7 +335,7 @@ func (s *InMemoryService) CompleteOIDCAuth(ctx context.Context, state, code stri
 	}
 
 	groups := parseGroups(claims.Groups)
-	role, err := mapGroupsToRole(groups, s.oidc.config.AdminGroup, s.oidc.config.UserGroup)
+	role, err := mapGroupsToRole(groups, s.oidc.config.AdminGroup, s.oidc.config.UserGroup, s.oidc.config.AuditGroup)
 	if err != nil {
 		s.logger.Warn("oidc_groups_rejected", "error", err)
 		return Session{}, err
@@ -357,6 +460,24 @@ func (s *InMemoryService) newSession(user User, idToken string) Session {
 	return session
 }
 
+func (s *InMemoryService) clearMustChangePassword(sessionID string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return
+	}
+
+	session.User.MustChangePassword = false
+	s.sessions[sessionID] = session
+}
+
 func (s *InMemoryService) cleanupExpiredFlowsLocked() {
 	now := time.Now()
 	for state, flow := range s.flows {
@@ -364,6 +485,13 @@ func (s *InMemoryService) cleanupExpiredFlowsLocked() {
 			delete(s.flows, state)
 		}
 	}
+}
+
+func validateNewPassword(password string) error {
+	if len(password) < 8 {
+		return ErrInvalidPassword
+	}
+	return nil
 }
 
 func randomHex(size int) string {

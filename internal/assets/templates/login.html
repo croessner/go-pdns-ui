@@ -39,11 +39,8 @@
         return resolvedTheme;
       }
 
-      const initialTheme = applyTheme(readTheme());
+      applyTheme(readTheme());
       window.__goPDNSUITheme = { applyTheme, resolveTheme };
-      window.addEventListener("DOMContentLoaded", () => {
-        applyTheme(initialTheme);
-      }, { once: true });
     })();
   </script>
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css">
@@ -126,36 +123,6 @@
     </div>
   </div>
 
-  <script nonce="{{.CSPNonce}}">
-    const loginRoot = document.documentElement;
-    const toggle = document.getElementById("theme-toggle");
-    const themeController = window.__goPDNSUITheme || null;
-    const allThemes = new Set(["light", "dark"]);
-
-    function applyTheme(theme) {
-      if (themeController && typeof themeController.applyTheme === "function") {
-        return themeController.applyTheme(theme);
-      }
-      const resolvedTheme = allThemes.has(theme) ? theme : "light";
-      loginRoot.setAttribute("data-theme", resolvedTheme);
-      loginRoot.style.colorScheme = resolvedTheme;
-
-      try {
-        localStorage.setItem("go-pdns-ui-theme", resolvedTheme);
-      } catch (_) {
-        // Ignore storage failures (private mode/restrictions).
-      }
-
-      return resolvedTheme;
-    }
-
-    if (toggle) {
-      toggle.addEventListener("click", () => {
-        const current = loginRoot.getAttribute("data-theme") || "light";
-        const next = current === "dark" ? "light" : "dark";
-        applyTheme(next);
-      });
-    }
-  </script>
+  <script src="/assets/login.js" defer></script>
 </body>
 </html>

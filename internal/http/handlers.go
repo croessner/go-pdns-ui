@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +40,7 @@ const (
 
 type Handler struct {
 	templates            *template.Template
+	assetFS              fs.FS
 	zones                domain.ZoneService
 	zoneTemplates        domain.ZoneTemplateService
 	auth                 auth.Service
@@ -85,6 +87,7 @@ type viewData struct {
 	Supported                []string
 	ShowLoginHint            bool
 	PasswordLoginEnabled     bool
+	PasswordChangeRequired   bool
 	Zones                    []domain.Zone
 	ZoneQuery                string
 	ZonePage                 int
@@ -108,7 +111,10 @@ type viewData struct {
 	CurrentUser              *auth.User
 	CurrentPrincipalID       string
 	IsAdmin                  bool
+	IsAudit                  bool
 	CanEditZones             bool
+	CanViewZones             bool
+	CanViewAudit             bool
 	ActiveTab                string
 	OIDCEnabled              bool
 	AccessControlEnabled     bool
@@ -203,6 +209,7 @@ func NewHandler(
 
 	return &Handler{
 		templates:            tmpl,
+		assetFS:              templateFS,
 		zones:                zones,
 		zoneTemplates:        zoneTemplates,
 		auth:                 authService,
@@ -222,15 +229,18 @@ func NewHandler(
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /favicon.ico", h.withRequestLogging(h.favicon))
+	mux.HandleFunc("GET /assets/{path...}", h.withRequestLogging(h.serveAsset))
 	mux.HandleFunc("GET /login", h.withRequestLogging(h.loginPage))
 	mux.HandleFunc("POST /login/password", h.withRequestLogging(h.loginPassword))
 	mux.HandleFunc("GET /login/oidc/start", h.withRequestLogging(h.startOIDCLogin))
 	mux.HandleFunc("GET /auth/oidc/callback", h.withRequestLogging(h.oidcCallback))
 	mux.HandleFunc("GET /logout", h.withRequestLogging(h.requireAuth(h.logout)))
 	mux.HandleFunc("POST /logout", h.withRequestLogging(h.requireAuth(h.csrf.RequireSessionToken(h.logout))))
+	mux.HandleFunc("GET /account/password", h.withRequestLogging(h.requireAuth(h.passwordChangePage)))
+	mux.HandleFunc("POST /account/password", h.withRequestLogging(h.requireAuth(h.csrf.RequireSessionToken(h.changePassword))))
 
 	mux.HandleFunc("GET /", h.withRequestLogging(h.requireAuth(h.dashboard)))
-	mux.HandleFunc("GET /audit/export.csv", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.exportAuditCSV)))
+	mux.HandleFunc("GET /audit/export.csv", h.withRequestLogging(h.requireAuditAccess(h.exportAuditCSV)))
 	mux.HandleFunc("POST /zones", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.createZone))))
 	mux.HandleFunc("POST /zones/{zone}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.deleteZone))))
 	mux.HandleFunc("GET /zones/{zone}/editor", h.withRequestLogging(h.requireAuth(h.zoneEditor)))
@@ -250,6 +260,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /templates/{template}/records/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.deleteTemplateRecord))))
 
 	mux.HandleFunc("POST /access/principals", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.createPrincipal))))
+	mux.HandleFunc("POST /access/principals/{principal}/update", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.updatePrincipal))))
+	mux.HandleFunc("POST /access/principals/{principal}/reset-password", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.resetPrincipalPassword))))
 	mux.HandleFunc("POST /access/principals/{principal}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.deletePrincipal))))
 	mux.HandleFunc("POST /access/companies", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.createCompany))))
 	mux.HandleFunc("POST /access/companies/{company}/delete", h.withRequestLogging(h.requireRole(auth.RoleAdmin, h.csrf.RequireSessionToken(h.deleteCompany))))
@@ -259,6 +271,28 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *Handler) favicon(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) serveAsset(w http.ResponseWriter, r *http.Request) {
+	rawAssetPath := strings.TrimSpace(r.PathValue("path"))
+	if rawAssetPath == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	cleanAssetPath := strings.TrimPrefix(path.Clean("/"+rawAssetPath), "/")
+	if cleanAssetPath == "." || cleanAssetPath == "" || strings.HasPrefix(cleanAssetPath, "..") {
+		http.NotFound(w, r)
+		return
+	}
+
+	assetFSPath := path.Join("static", cleanAssetPath)
+	if _, err := fs.Stat(h.assetFS, assetFSPath); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.ServeFileFS(w, r, h.assetFS, assetFSPath)
 }
 
 func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
@@ -367,6 +401,83 @@ func (h *Handler) loginPassword(w http.ResponseWriter, r *http.Request) {
 	h.rateLimiter.RecordSuccess(r)
 	h.setSessionCookie(w, session.ID)
 	h.logger.Info("password_login_succeeded", "username", username, "role", session.User.Role)
+	if session.User.MustChangePassword {
+		http.Redirect(w, r, "/account/password", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (h *Handler) passwordChangePage(w http.ResponseWriter, r *http.Request, session auth.Session) {
+	lang := h.resolveLanguage(w, r)
+	if !strings.EqualFold(strings.TrimSpace(session.User.AuthSource), "password") {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	h.render(w, "change_password.html", viewData{
+		L:                      h.i18n.Catalog(lang),
+		Lang:                   lang,
+		Supported:              h.i18n.Supported(),
+		OIDCEnabled:            h.auth.OIDCEnabled(),
+		CSRFToken:              session.CSRFToken,
+		CSPNonce:               NonceFromContext(r.Context()),
+		CurrentUser:            &session.User,
+		PasswordChangeRequired: session.User.MustChangePassword,
+	}, http.StatusOK)
+}
+
+func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request, session auth.Session) {
+	lang := h.resolveLanguage(w, r)
+	if !strings.EqualFold(strings.TrimSpace(session.User.AuthSource), "password") {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		h.badRequest(w, r, "invalid form", err)
+		return
+	}
+
+	currentPassword := r.FormValue("current_password")
+	newPassword := r.FormValue("new_password")
+	confirmPassword := r.FormValue("confirm_password")
+	if newPassword != confirmPassword {
+		h.render(w, "change_password.html", viewData{
+			L:                      h.i18n.Catalog(lang),
+			Lang:                   lang,
+			Supported:              h.i18n.Supported(),
+			OIDCEnabled:            h.auth.OIDCEnabled(),
+			CSRFToken:              session.CSRFToken,
+			CSPNonce:               NonceFromContext(r.Context()),
+			CurrentUser:            &session.User,
+			Error:                  h.i18n.Catalog(lang)["password_change_mismatch"],
+			PasswordChangeRequired: session.User.MustChangePassword,
+		}, http.StatusBadRequest)
+		return
+	}
+
+	if err := h.auth.ChangePassword(session.ID, currentPassword, newPassword); err != nil {
+		message := h.i18n.Catalog(lang)["password_change_failed"]
+		if errors.Is(err, auth.ErrInvalidPassword) {
+			message = h.i18n.Catalog(lang)["password_policy_error"]
+		}
+
+		h.render(w, "change_password.html", viewData{
+			L:                      h.i18n.Catalog(lang),
+			Lang:                   lang,
+			Supported:              h.i18n.Supported(),
+			OIDCEnabled:            h.auth.OIDCEnabled(),
+			CSRFToken:              session.CSRFToken,
+			CSPNonce:               NonceFromContext(r.Context()),
+			CurrentUser:            &session.User,
+			Error:                  message,
+			PasswordChangeRequired: session.User.MustChangePassword,
+		}, http.StatusUnauthorized)
+		return
+	}
+
+	h.logAction("password_changed", session)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -1270,13 +1381,38 @@ func (h *Handler) createPrincipal(w http.ResponseWriter, r *http.Request, sessio
 		return
 	}
 
-	principal, err := h.access.CreatePrincipal(
-		r.Context(),
-		"oidc",
-		"",
-		strings.TrimSpace(r.FormValue("username")),
-		strings.TrimSpace(r.FormValue("email")),
+	authSource := strings.ToLower(strings.TrimSpace(r.FormValue("auth_source")))
+	if authSource == "" {
+		authSource = "oidc"
+	}
+
+	username := strings.TrimSpace(r.FormValue("username"))
+	email := strings.TrimSpace(r.FormValue("email"))
+	mustChangePassword := strings.EqualFold(strings.TrimSpace(r.FormValue("must_change_password")), "on")
+
+	var (
+		principal access.Principal
+		err       error
 	)
+	switch authSource {
+	case "password":
+		principal, err = h.access.CreatePasswordPrincipal(
+			r.Context(),
+			username,
+			email,
+			r.FormValue("password"),
+			mustChangePassword,
+		)
+	default:
+		mustChangePassword = false
+		principal, err = h.access.CreatePrincipal(
+			r.Context(),
+			"oidc",
+			"",
+			username,
+			email,
+		)
+	}
 	if err != nil {
 		h.respondAccessError(w, r, err)
 		return
@@ -1289,6 +1425,98 @@ func (h *Handler) createPrincipal(w http.ResponseWriter, r *http.Request, sessio
 		"auth_source", principal.AuthSource,
 		"subject", principal.Subject,
 		"username", principal.Username,
+		"must_change_password", mustChangePassword,
+	)
+
+	state, err := h.buildDashboardState(
+		r.Context(),
+		lang,
+		strings.TrimSpace(r.FormValue("q")),
+		parsePage(strings.TrimSpace(r.FormValue("page"))),
+		strings.TrimSpace(r.FormValue("selected_zone")),
+		strings.TrimSpace(r.FormValue("selected_template")),
+		strings.TrimSpace(r.FormValue("tab")),
+		session,
+		strings.TrimSpace(r.FormValue("zone_assignment_page")),
+	)
+	if err != nil {
+		h.internalError(w, r, "failed to render workspace", err)
+		return
+	}
+
+	h.render(w, "workspace", state, http.StatusOK)
+}
+
+func (h *Handler) updatePrincipal(w http.ResponseWriter, r *http.Request, session auth.Session) {
+	lang := h.resolveLanguage(w, r)
+	principalID := strings.TrimSpace(r.PathValue("principal"))
+	if principalID == "" {
+		h.badRequest(w, r, "principal missing", nil)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.badRequest(w, r, "invalid form", err)
+		return
+	}
+
+	username := strings.TrimSpace(r.FormValue("username"))
+	email := strings.TrimSpace(r.FormValue("email"))
+	if err := h.access.UpdatePrincipal(r.Context(), principalID, username, email); err != nil {
+		h.respondAccessError(w, r, err)
+		return
+	}
+
+	h.logAction(
+		"principal_updated",
+		session,
+		"principal_id", principalID,
+		"username", username,
+		"email", email,
+	)
+
+	state, err := h.buildDashboardState(
+		r.Context(),
+		lang,
+		strings.TrimSpace(r.FormValue("q")),
+		parsePage(strings.TrimSpace(r.FormValue("page"))),
+		strings.TrimSpace(r.FormValue("selected_zone")),
+		strings.TrimSpace(r.FormValue("selected_template")),
+		strings.TrimSpace(r.FormValue("tab")),
+		session,
+		strings.TrimSpace(r.FormValue("zone_assignment_page")),
+	)
+	if err != nil {
+		h.internalError(w, r, "failed to render workspace", err)
+		return
+	}
+
+	h.render(w, "workspace", state, http.StatusOK)
+}
+
+func (h *Handler) resetPrincipalPassword(w http.ResponseWriter, r *http.Request, session auth.Session) {
+	lang := h.resolveLanguage(w, r)
+	principalID := strings.TrimSpace(r.PathValue("principal"))
+	if principalID == "" {
+		h.badRequest(w, r, "principal missing", nil)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.badRequest(w, r, "invalid form", err)
+		return
+	}
+
+	password := r.FormValue("password")
+	mustChangePassword := strings.EqualFold(strings.TrimSpace(r.FormValue("must_change_password")), "on")
+	if err := h.access.ResetPrincipalPassword(r.Context(), principalID, password, mustChangePassword); err != nil {
+		h.respondAccessError(w, r, err)
+		return
+	}
+
+	h.logAction(
+		"principal_password_reset",
+		session,
+		"principal_id", principalID,
+		"must_change_password", mustChangePassword,
 	)
 
 	state, err := h.buildDashboardState(
@@ -1635,6 +1863,7 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 	}
 
 	pagedZoneAssignments, resolvedZoneAssignmentPage, zoneAssignmentTotalPages := paginateZoneAssignments(zoneAssignments, zoneAssignmentPage, zoneAssignmentsPerPage)
+	activeTab := normalizeWorkspaceTab(requestedTab, session.User.Role, h.access.Enabled(), h.audit.Enabled())
 
 	defaultRecordType := firstRecordType(h.availableRecordTypes)
 	data := viewData{
@@ -1676,8 +1905,11 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 		CurrentUser:           &session.User,
 		CurrentPrincipalID:    currentPrincipal.ID,
 		IsAdmin:               session.User.Role == auth.RoleAdmin,
+		IsAudit:               session.User.Role == auth.RoleAudit,
 		CanEditZones:          canEditZones(session.User.Role),
-		ActiveTab:             normalizeWorkspaceTab(requestedTab, session.User.Role == auth.RoleAdmin, h.access.Enabled(), h.audit.Enabled()),
+		CanViewZones:          canViewZones(session.User.Role),
+		CanViewAudit:          canAccessAudit(session.User.Role) && h.audit.Enabled(),
+		ActiveTab:             activeTab,
 		OIDCEnabled:           h.auth.OIDCEnabled(),
 		AccessControlEnabled:  h.access.Enabled(),
 		AuditEnabled:          h.audit.Enabled(),
@@ -1746,7 +1978,7 @@ func (h *Handler) buildDashboardState(ctx context.Context, lang, zoneQuery strin
 }
 
 func (h *Handler) populateAuditData(ctx context.Context, data *viewData, auditQuery, auditAction string, auditPage int) {
-	if !h.audit.Enabled() || data.ActiveTab != tabAudit {
+	if !h.audit.Enabled() || !data.CanViewAudit || data.ActiveTab != tabAudit {
 		return
 	}
 
@@ -2526,6 +2758,15 @@ func (h *Handler) requireAuth(next authedHandler) http.HandlerFunc {
 				h.internalError(w, r, "failed to sync principal", err)
 				return
 			}
+			if session.User.MustChangePassword && strings.EqualFold(strings.TrimSpace(session.User.AuthSource), "password") && !isAllowedDuringForcedPasswordChange(r.URL.Path, r.Method) {
+				if isHXRequest(r) {
+					w.Header().Set("HX-Redirect", "/account/password")
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				http.Redirect(w, r, "/account/password", http.StatusSeeOther)
+				return
+			}
 			next(w, r, session)
 			return
 		}
@@ -2543,6 +2784,12 @@ func (h *Handler) requireAuth(next authedHandler) http.HandlerFunc {
 }
 
 func (h *Handler) ensureZoneAccess(w http.ResponseWriter, r *http.Request, session auth.Session, zoneName string) bool {
+	if !canViewZones(session.User.Role) {
+		h.logAction("forbidden_request", session, "required_zone_read", true, "path", r.URL.Path, "method", r.Method)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+
 	allowed, err := h.access.CanAccessZone(r.Context(), session.User, zoneName)
 	if err != nil {
 		h.internalError(w, r, "failed to evaluate zone access", err)
@@ -2643,10 +2890,33 @@ func isExpectedUnauthenticatedPath(path, method string) bool {
 	}
 }
 
+func isAllowedDuringForcedPasswordChange(path, method string) bool {
+	normalizedPath := strings.TrimSpace(path)
+	switch normalizedPath {
+	case "/account/password":
+		return method == http.MethodGet || method == http.MethodPost
+	case "/logout":
+		return method == http.MethodGet || method == http.MethodPost
+	default:
+		return false
+	}
+}
+
 func (h *Handler) requireRole(required auth.Role, next authedHandler) http.HandlerFunc {
 	return h.requireAuth(func(w http.ResponseWriter, r *http.Request, session auth.Session) {
 		if session.User.Role != required {
 			h.logAction("forbidden_request", session, "required_role", required, "path", r.URL.Path, "method", r.Method)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next(w, r, session)
+	})
+}
+
+func (h *Handler) requireAuditAccess(next authedHandler) http.HandlerFunc {
+	return h.requireAuth(func(w http.ResponseWriter, r *http.Request, session auth.Session) {
+		if !canAccessAudit(session.User.Role) {
+			h.logAction("forbidden_request", session, "required_audit_access", true, "path", r.URL.Path, "method", r.Method)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -2669,8 +2939,19 @@ func canEditZones(role auth.Role) bool {
 	return role == auth.RoleAdmin || role == auth.RoleUser
 }
 
-func normalizeWorkspaceTab(requested string, isAdmin, accessControlEnabled, auditEnabled bool) string {
-	if !isAdmin {
+func canViewZones(role auth.Role) bool {
+	return role != auth.RoleAudit
+}
+
+func canAccessAudit(role auth.Role) bool {
+	return role == auth.RoleAdmin || role == auth.RoleAudit
+}
+
+func normalizeWorkspaceTab(requested string, role auth.Role, accessControlEnabled, auditEnabled bool) string {
+	if role == auth.RoleAudit {
+		return tabAudit
+	}
+	if role != auth.RoleAdmin {
 		return tabZones
 	}
 
