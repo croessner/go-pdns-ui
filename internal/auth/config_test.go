@@ -39,6 +39,7 @@ func TestLoadOIDCConfigFromEnvIncludesIssuerURL(t *testing.T) {
 	t.Setenv("GO_PDNS_UI_OIDC_CLIENT_ID", "client")
 	t.Setenv("GO_PDNS_UI_OIDC_CLIENT_SECRET", "secret")
 	t.Setenv("GO_PDNS_UI_OIDC_REDIRECT_URL", "http://localhost:8080/auth/oidc/callback")
+	t.Setenv("GO_PDNS_UI_OIDC_AUDIT_GROUP", "auditors")
 
 	config := LoadOIDCConfigFromEnv()
 
@@ -56,6 +57,9 @@ func TestLoadOIDCConfigFromEnvIncludesIssuerURL(t *testing.T) {
 	}
 	if !config.InsecureSkipVerify {
 		t.Fatalf("expected insecure skip verify to be enabled")
+	}
+	if config.AuditGroup != "auditors" {
+		t.Fatalf("unexpected audit group: %q", config.AuditGroup)
 	}
 }
 

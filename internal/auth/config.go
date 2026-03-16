@@ -19,6 +19,7 @@ type OIDCConfig struct {
 	Scopes             []string
 	AdminGroup         string
 	UserGroup          string
+	AuditGroup         string
 }
 
 func (c OIDCConfig) Enabled() bool {
@@ -43,6 +44,7 @@ func LoadOIDCConfigFromEnv() OIDCConfig {
 		Scopes:             scopes,
 		AdminGroup:         getenvOrDefault("GO_PDNS_UI_OIDC_ADMIN_GROUP", "admin"),
 		UserGroup:          getenvOrDefault("GO_PDNS_UI_OIDC_USER_GROUP", "user"),
+		AuditGroup:         getenvOrDefault("GO_PDNS_UI_OIDC_AUDIT_GROUP", "audit"),
 	}
 }
 

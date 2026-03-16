@@ -460,9 +460,10 @@ func buildPKCEChallenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(hash[:])
 }
 
-func mapGroupsToRole(groups []string, adminGroup, userGroup string) (Role, error) {
+func mapGroupsToRole(groups []string, adminGroup, userGroup, auditGroup string) (Role, error) {
 	adminGroup = strings.TrimSpace(adminGroup)
 	userGroup = strings.TrimSpace(userGroup)
+	auditGroup = strings.TrimSpace(auditGroup)
 
 	normalized := make([]string, 0, len(groups))
 	for _, group := range groups {
@@ -477,6 +478,9 @@ func mapGroupsToRole(groups []string, adminGroup, userGroup string) (Role, error
 	}
 
 	role := Role("")
+	if auditGroup != "" && slices.Contains(normalized, strings.ToLower(auditGroup)) {
+		role = higherRole(role, RoleAudit)
+	}
 	if userGroup != "" && slices.Contains(normalized, strings.ToLower(userGroup)) {
 		role = higherRole(role, RoleUser)
 	}
@@ -500,8 +504,10 @@ func higherRole(left, right Role) Role {
 func roleRank(role Role) int {
 	switch role {
 	case RoleAdmin:
-		return 2
+		return 3
 	case RoleUser:
+		return 2
+	case RoleAudit:
 		return 1
 	case RoleViewer:
 		return 0

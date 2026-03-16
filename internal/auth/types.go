@@ -7,16 +7,19 @@ type Role string
 const (
 	RoleAdmin  Role = "admin"
 	RoleUser   Role = "user"
+	RoleAudit  Role = "audit"
 	RoleViewer Role = "viewer"
 )
 
 type User struct {
-	Subject    string
-	Username   string
-	Email      string
-	AuthSource string
-	Groups     []string
-	Role       Role
+	PrincipalID        string
+	Subject            string
+	Username           string
+	Email              string
+	AuthSource         string
+	Groups             []string
+	Role               Role
+	MustChangePassword bool
 }
 
 type Session struct {
