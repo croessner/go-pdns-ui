@@ -132,7 +132,7 @@ www IN A 192.0.2.20
 
 	req := httptest.NewRequest(http.MethodPost, "/zones/example.org/import", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -186,7 +186,7 @@ func TestImportZoneRFCRouteRendersParserErrorAndPreservesInput(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/zones/example.org/import", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -245,7 +245,7 @@ func TestExportZoneRFCRouteReturnsZoneText(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/zones/example.org/export", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

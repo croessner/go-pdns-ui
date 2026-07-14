@@ -49,19 +49,19 @@ func NewClient(config Config, logger *slog.Logger) *Client {
 	}
 }
 
-func (c *Client) get(ctx context.Context, path string, out interface{}) error {
+func (c *Client) get(ctx context.Context, path string, out any) error {
 	return c.request(ctx, http.MethodGet, path, nil, out)
 }
 
-func (c *Client) post(ctx context.Context, path string, body interface{}, out interface{}) error {
+func (c *Client) post(ctx context.Context, path string, body any, out any) error {
 	return c.request(ctx, http.MethodPost, path, body, out)
 }
 
-func (c *Client) patch(ctx context.Context, path string, body interface{}, out interface{}) error {
+func (c *Client) patch(ctx context.Context, path string, body any, out any) error {
 	return c.request(ctx, http.MethodPatch, path, body, out)
 }
 
-func (c *Client) put(ctx context.Context, path string, body interface{}, out interface{}) error {
+func (c *Client) put(ctx context.Context, path string, body any, out any) error {
 	return c.request(ctx, http.MethodPut, path, body, out)
 }
 
@@ -69,7 +69,7 @@ func (c *Client) delete(ctx context.Context, path string) error {
 	return c.request(ctx, http.MethodDelete, path, nil, nil)
 }
 
-func (c *Client) request(ctx context.Context, method, path string, body interface{}, out interface{}) error {
+func (c *Client) request(ctx context.Context, method, path string, body any, out any) error {
 	path = "/" + strings.TrimLeft(path, "/")
 	var payload []byte
 	if body != nil {
@@ -116,7 +116,7 @@ func (c *Client) request(ctx context.Context, method, path string, body interfac
 	return nil
 }
 
-func (c *Client) requestOnce(ctx context.Context, baseURL, method, path string, payload []byte, out interface{}) error {
+func (c *Client) requestOnce(ctx context.Context, baseURL, method, path string, payload []byte, out any) error {
 	endpoint, err := url.JoinPath(baseURL, path)
 	if err != nil {
 		c.logger.Error("pdns_build_url_failed", "base_url", baseURL, "path", path, "error", err)
@@ -154,7 +154,7 @@ func (c *Client) requestOnce(ctx context.Context, baseURL, method, path string, 
 		)
 		return fmt.Errorf("execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {

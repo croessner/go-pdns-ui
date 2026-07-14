@@ -68,7 +68,7 @@ func NewPostgresService(ctx context.Context, cfg DBConfig, logger *slog.Logger) 
 	}
 
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("ping audit database: %w", err)
 	}
 
@@ -78,7 +78,7 @@ func NewPostgresService(ctx context.Context, cfg DBConfig, logger *slog.Logger) 
 		retentionDays: resolveRetentionDays(cfg.RetentionDays),
 	}
 	if err := svc.migrate(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	if err := svc.maybeCleanupExpired(ctx, time.Now().UTC()); err != nil {
@@ -191,10 +191,7 @@ func (s *PostgresService) Search(ctx context.Context, params SearchParams) (Sear
 	if limit <= 0 {
 		limit = 25
 	}
-	page := params.Page
-	if page < 1 {
-		page = 1
-	}
+	page := max(params.Page, 1)
 
 	where, args := s.buildWhere(params)
 
@@ -214,6 +211,7 @@ func (s *PostgresService) Search(ctx context.Context, params SearchParams) (Sear
 	}
 
 	offset := (page - 1) * limit
+	//nolint:gosec // The WHERE clause is assembled only from fixed fragments in buildWhere.
 	dataQuery := `SELECT id, timestamp, action, username, role, auth_source, target, detail
 		FROM audit_log` + where + ` ORDER BY timestamp DESC LIMIT $` + fmt.Sprintf("%d", len(args)+1) + ` OFFSET $` + fmt.Sprintf("%d", len(args)+2)
 	args = append(args, limit, offset)
@@ -222,7 +220,7 @@ func (s *PostgresService) Search(ctx context.Context, params SearchParams) (Sear
 	if err != nil {
 		return SearchResult{}, fmt.Errorf("query audit log: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	entries := make([]Entry, 0)
 	for rows.Next() {
@@ -249,7 +247,7 @@ func (s *PostgresService) Actions(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list audit actions: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var actions []string
 	for rows.Next() {
@@ -281,7 +279,6 @@ func (s *PostgresService) buildWhere(params SearchParams) (string, []any) {
 	if a := strings.TrimSpace(params.Action); a != "" {
 		conditions = append(conditions, fmt.Sprintf("action = $%d", idx))
 		args = append(args, a)
-		idx++
 	}
 
 	if len(conditions) == 0 {

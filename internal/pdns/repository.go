@@ -106,7 +106,8 @@ func (r *Repository) CreateZone(ctx context.Context, zone domain.Zone) error {
 	}
 
 	if err := r.client.post(ctx, r.zonesPath(), payload, nil); err != nil {
-		if apiErr, ok := err.(*APIError); ok && apiErr.Status == http.StatusConflict {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusConflict {
 			return domain.ErrZoneExists
 		}
 		return mapRepositoryError(err)
@@ -388,13 +389,13 @@ func mapRepositoryError(err error) error {
 		if isZoneResourcePath(apiErr.Path) {
 			return domain.ErrZoneNotFound
 		}
-		return fmt.Errorf("%w: %v", domain.ErrBackend, err)
+		return fmt.Errorf("%w: %w", domain.ErrBackend, err)
 	case http.StatusConflict:
 		return domain.ErrZoneExists
 	case http.StatusBadRequest:
 		return domain.ErrInvalidZone
 	default:
-		return fmt.Errorf("%w: %v", domain.ErrBackend, err)
+		return fmt.Errorf("%w: %w", domain.ErrBackend, err)
 	}
 }
 

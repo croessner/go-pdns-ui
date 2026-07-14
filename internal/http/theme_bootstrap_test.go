@@ -48,7 +48,7 @@ func TestDashboardPageThemeBootstrapRegression(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

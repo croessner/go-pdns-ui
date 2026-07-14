@@ -211,6 +211,9 @@ Print version/build metadata:
 ```bash
 make run
 make test
+make guardrails
+make release-guardrails
+make install-hooks     # optional pre-push govulncheck gate for main and v* tags
 make build
 make docker-build
 make docker-run
@@ -253,6 +256,25 @@ Customize via Make variables, for example:
 ```bash
 make sbom SBOM_DOCKER_IMAGE=go-pdns-ui:local SBOM_DOCKER_PULL=false
 ```
+
+## Releases
+
+Release tags use `vMAJOR.MINOR.PATCH` or a SemVer prerelease such as
+`v1.6.0-rc.1`. Validate a tag locally with:
+
+```bash
+./scripts/release-semver-metadata.sh v1.6.0
+make release-guardrails
+```
+
+Pushing a valid `v*` tag creates a GitHub release with categorized commit
+summaries and generated pull-request notes. Linux AMD64 and ARM64 archives,
+SPDX SBOMs, and build-provenance attestations are attached automatically.
+
+Stable releases update the exact, `latest`, major, and minor GHCR aliases.
+Prereleases update only their exact version alias. Commit messages follow the
+capitalized prefix format documented in [`AGENTS.md`](AGENTS.md) and
+[`POLICY.md`](POLICY.md), which also drives the release summary categories.
 
 ## Docker Compose (Full Stack)
 

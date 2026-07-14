@@ -51,7 +51,7 @@ func NewPostgresService(ctx context.Context, cfg DBConfig, logger *slog.Logger) 
 	}
 
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("ping access database: %w", err)
 	}
 
@@ -66,7 +66,7 @@ func NewPostgresService(ctx context.Context, cfg DBConfig, logger *slog.Logger) 
 		oidcAutoCreateMode: oidcAutoCreateMode,
 	}
 	if err := svc.migrate(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
@@ -345,7 +345,7 @@ func (s *PostgresService) ListCompanies(ctx context.Context) ([]Company, error) 
 	if err != nil {
 		return nil, fmt.Errorf("list companies: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	result := make([]Company, 0)
 	for rows.Next() {
@@ -373,7 +373,7 @@ func (s *PostgresService) ListPrincipals(ctx context.Context) ([]Principal, erro
 	if err != nil {
 		return nil, fmt.Errorf("list principals: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	result := make([]Principal, 0)
 	for rows.Next() {
@@ -414,7 +414,7 @@ func (s *PostgresService) ListCompanyMemberships(ctx context.Context) ([]Company
 	if err != nil {
 		return nil, fmt.Errorf("list memberships: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	result := make([]CompanyMembership, 0)
 	for rows.Next() {
@@ -449,7 +449,7 @@ func (s *PostgresService) ListZoneAssignments(ctx context.Context) ([]ZoneAssign
 	if err != nil {
 		return nil, fmt.Errorf("list zone assignments: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	result := make([]ZoneAssignment, 0)
 	for rows.Next() {
@@ -535,7 +535,7 @@ func (s *PostgresService) CreatePasswordPrincipal(ctx context.Context, username,
 	if err != nil {
 		return Principal{}, fmt.Errorf("start create password principal transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	insertID, err := randomID()
 	if err != nil {
@@ -993,7 +993,7 @@ func (s *PostgresService) listAllowedZoneNames(ctx context.Context, principalID 
 	if err != nil {
 		return nil, fmt.Errorf("list allowed zones: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	result := make([]string, 0)
 	for rows.Next() {

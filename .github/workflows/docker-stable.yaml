@@ -9,6 +9,9 @@ permissions:
   contents: read
   packages: write
 
+env:
+  GOVULNCHECK_VERSION: v1.3.0
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,6 +20,25 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version: 1.26.5
+
+      - name: Install govulncheck
+        run: |
+          GOBIN="$(go env GOPATH)/bin" \
+            go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Enable Go modules and vendored dependencies
+        run: |
+          go env -w GO111MODULE=on
+          go env -w GOFLAGS=-mod=vendor
+
+      - name: Run govulncheck
+        run: make govulncheck
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
@@ -34,21 +56,33 @@ jobs:
       - name: Extract tag versions
         id: extract_version
         run: |
-          tag="${GITHUB_REF##*/}"
-          version="${tag#v}"
-          major="$(echo "$version" | cut -d'.' -f1)"
-          minor="$(echo "$version" | cut -d'.' -f2)"
+          prerelease=""
+          version=""
+          major=""
+          minor=""
 
-          if [ -z "$minor" ] || [ "$minor" = "$version" ]; then
-            minor="0"
-          fi
+          {
+            while IFS='=' read -r key value; do
+              echo "${key}=${value}"
+              case "${key}" in
+                prerelease) prerelease="${value}" ;;
+                version) version="${value}" ;;
+                major) major="${value}" ;;
+                minor) minor="${value}" ;;
+              esac
+            done < <(./scripts/release-semver-metadata.sh "${GITHUB_REF_NAME}")
 
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "major=${major}" >> "$GITHUB_OUTPUT"
-          echo "minor=${minor}" >> "$GITHUB_OUTPUT"
-          echo "commit=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
-          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+            echo "commit=${GITHUB_SHA:0:8}"
+            echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo 'tags<<EOF'
+            echo "ghcr.io/${GITHUB_REPOSITORY_OWNER}/go-pdns-ui:${version}"
+            if [[ "${prerelease}" != "true" ]]; then
+              echo "ghcr.io/${GITHUB_REPOSITORY_OWNER}/go-pdns-ui:latest"
+              echo "ghcr.io/${GITHUB_REPOSITORY_OWNER}/go-pdns-ui:${major}"
+              echo "ghcr.io/${GITHUB_REPOSITORY_OWNER}/go-pdns-ui:${major}.${minor}"
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
@@ -58,13 +92,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           sbom: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/go-pdns-ui:latest
-            ghcr.io/${{ github.repository_owner }}/go-pdns-ui:${{ steps.extract_version.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/go-pdns-ui:${{ steps.extract_version.outputs.major }}
-            ghcr.io/${{ github.repository_owner }}/go-pdns-ui:${{ steps.extract_version.outputs.major }}.${{ steps.extract_version.outputs.minor }}
+          tags: ${{ steps.extract_version.outputs.tags }}
           build-args: |
-            VERSION=${{ steps.extract_version.outputs.tag }}
+            VERSION=${{ github.ref_name }}
             COMMIT=${{ steps.extract_version.outputs.commit }}
             BUILD_DATE=${{ steps.extract_version.outputs.build_date }}
           outputs: type=image,name=target,annotation-index.org.opencontainers.image.description=PowerDNS administration UI

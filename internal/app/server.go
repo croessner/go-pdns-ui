@@ -179,7 +179,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		r.logger.Info("shutdown signal received")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		if shutdownErr := server.Shutdown(shutdownCtx); shutdownErr != nil {
 			r.logger.Error("graceful shutdown failed", "error", shutdownErr)

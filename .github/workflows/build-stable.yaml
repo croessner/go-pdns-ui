@@ -9,16 +9,14 @@ permissions:
   contents: read
 
 env:
-  GOFLAGS: -mod=vendor
+  APP_NAME: go-pdns-ui
+  GOVULNCHECK_VERSION: v1.3.0
+  SYFT_VERSION: v1.16.0
 
 jobs:
-  build-artifact:
+  govulncheck:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        goos: [linux]
-        goarch: [amd64, arm64]
+
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -28,67 +26,164 @@ jobs:
         with:
           go-version: 1.26.5
 
+      - name: Install govulncheck
+        run: |
+          GOBIN="$(go env GOPATH)/bin" \
+            go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Enable Go modules and vendored dependencies
+        run: |
+          go env -w GO111MODULE=on
+          go env -w GOFLAGS=-mod=vendor
+
+      - name: Run govulncheck
+        run: make govulncheck
+
+  build-artifact:
+    needs: govulncheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate release metadata
+        run: ./scripts/release-semver-metadata.sh "${GITHUB_REF_NAME}" >/dev/null
+
+      - name: Set up Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version: 1.26.5
+
       - name: Build and package artifact
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
-          COMMIT="${GITHUB_SHA:0:8}"
-          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          ASSET="go-pdns-ui-${{ matrix.goos }}-${{ matrix.goarch }}"
-          mkdir -p "dist/${ASSET}"
+          version="${GITHUB_REF_NAME}"
+          commit="${GITHUB_SHA:0:12}"
+          build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          asset="${APP_NAME}-${{ matrix.goos }}-${{ matrix.goarch }}"
 
+          mkdir -p "dist/${asset}"
           CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
-            go build -trimpath \
-              -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" \
-              -o "dist/${ASSET}/go-pdns-ui" \
+            go build -mod=vendor -trimpath \
+              -ldflags="-s -w -X main.version=${version} -X main.commit=${commit} -X main.buildDate=${build_date}" \
+              -o "dist/${asset}/${APP_NAME}" \
               ./cmd/go-pdns-ui
 
-          cp README.md "dist/${ASSET}/README.md"
-          (cd dist && tar czf "${ASSET}.tar.gz" "${ASSET}")
+          cp LICENSE POLICY.md README.md "dist/${asset}/"
+          (
+            cd dist
+            tar czf "${asset}.tar.gz" "${asset}"
+            ls -lah ./*.tar.gz
+          )
 
-      - name: Upload artifacts
+      - name: Generate SBOM
+        run: |
+          asset="${APP_NAME}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          ./scripts/sbom.sh \
+            --source-dir "dist/${asset}" \
+            --output-dir "dist/${asset}" \
+            --output-prefix "${asset}" \
+            --skip-docker \
+            --syft-version "${SYFT_VERSION}"
+
+      - name: Upload artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: artifact-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/go-pdns-ui-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/*/*.spdx.json
+
+      - name: Attest release artifact
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          create-storage-record: false
+          subject-path: |
+            dist/*.tar.gz
+            dist/*/*.spdx.json
 
   create-release:
+    needs:
+      - govulncheck
+      - build-artifact
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    needs: build-artifact
+
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
 
+      - name: Resolve release metadata
+        id: release_metadata
+        run: ./scripts/release-semver-metadata.sh "${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
       - name: Create release with generated notes
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.release_metadata.outputs.prerelease }}
         run: |
-          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "Release ${{ github.ref_name }} already exists."
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} already exists."
             exit 0
           fi
 
-          gh release create "${{ github.ref_name }}" \
-            --repo "${{ github.repository }}" \
-            --verify-tag \
-            --generate-notes \
-            --fail-on-no-commits \
-            --latest
+          last_release_tag="$(gh release view --repo "${GITHUB_REPOSITORY}" --json tagName --jq '.tagName' 2>/dev/null || true)"
+          if [[ -n "${last_release_tag}" ]]; then
+            ahead_by="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${last_release_tag}...${GITHUB_REF_NAME}" --jq '.ahead_by')"
+            if [[ "${ahead_by}" -eq 0 ]]; then
+              echo "No new commits since ${last_release_tag}; aborting release creation."
+              exit 1
+            fi
+          fi
+
+          notes_file="$(mktemp)"
+          trap 'rm -f "${notes_file}"' EXIT
+          ./scripts/release-notes.sh "${GITHUB_REF_NAME}" "${notes_file}" "${last_release_tag}"
+
+          release_args=(
+            "${GITHUB_REF_NAME}"
+            --repo "${GITHUB_REPOSITORY}"
+            --verify-tag
+            --notes-file "${notes_file}"
+            --generate-notes
+          )
+
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            release_args+=(--prerelease)
+          else
+            release_args+=(--latest)
+          fi
+
+          gh release create "${release_args[@]}"
 
   upload-release:
+    needs:
+      - govulncheck
+      - create-release
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: write
-    needs: create-release
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         goos: [linux]
         goarch: [amd64, arm64]
+
     steps:
       - name: Download artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -98,9 +193,11 @@ jobs:
 
       - name: Upload release asset
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ github.ref_name }}" \
-            --repo "${{ github.repository }}" \
+          asset="${APP_NAME}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          gh release upload "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --clobber \
-            dist/go-pdns-ui-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+            "dist/${asset}.tar.gz" \
+            "dist/${asset}/${asset}-source.spdx.json"

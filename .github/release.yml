@@ -14,14 +14,20 @@ changelog:
       labels:
         - breaking-change
         - breaking
-    - title: Features
+    - title: Added
       labels:
         - feature
         - enhancement
-    - title: Fixes
+    - title: Changed
+      labels:
+        - change
+    - title: Fixed
       labels:
         - bug
         - fix
+    - title: Removed
+      labels:
+        - removal
     - title: Security
       labels:
         - security

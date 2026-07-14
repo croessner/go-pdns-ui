@@ -992,7 +992,7 @@ func (h *Handler) addPTRRecord(w http.ResponseWriter, r *http.Request, session a
 
 	allZones, err := h.zones.ListZones(r.Context())
 	if err != nil {
-		h.respondDomainError(w, r, fmt.Errorf("%w: list zones: %v", domain.ErrBackend, err))
+		h.respondDomainError(w, r, fmt.Errorf("%w: list zones: %w", domain.ErrBackend, err))
 		return
 	}
 	accessibleZones, err := h.access.FilterZones(r.Context(), session.User, allZones)
@@ -2179,10 +2179,7 @@ func paginateZones(zones []domain.Zone, page, pageSize int) ([]domain.Zone, int,
 		return []domain.Zone{}, page, totalPages
 	}
 
-	end := start + pageSize
-	if end > len(zones) {
-		end = len(zones)
-	}
+	end := min(start+pageSize, len(zones))
 
 	result := make([]domain.Zone, end-start)
 	copy(result, zones[start:end])
@@ -2211,10 +2208,7 @@ func paginateZoneAssignments(assignments []access.ZoneAssignment, page, pageSize
 		return []access.ZoneAssignment{}, page, totalPages
 	}
 
-	end := start + pageSize
-	if end > len(assignments) {
-		end = len(assignments)
-	}
+	end := min(start+pageSize, len(assignments))
 
 	result := make([]access.ZoneAssignment, end-start)
 	copy(result, assignments[start:end])
@@ -2456,10 +2450,6 @@ func collectReverseZones(zones []domain.Zone) []domain.Zone {
 
 func recordActionKey(record domain.Record) string {
 	return strings.TrimSpace(record.Name) + "\x00" + strings.ToUpper(strings.TrimSpace(record.Type)) + "\x00" + strings.TrimSpace(record.Content)
-}
-
-func recordNameTypeKey(record domain.Record) string {
-	return strings.TrimSpace(record.Name) + "\x00" + strings.ToUpper(strings.TrimSpace(record.Type))
 }
 
 func ptrDomainForAddr(addr netip.Addr) (string, domain.ZoneKind) {

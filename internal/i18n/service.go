@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -82,17 +83,13 @@ func (s *Service) Catalog(lang string) map[string]string {
 
 	fallback := s.catalogs[s.fallback]
 	result := make(map[string]string, len(fallback))
-	for key, value := range fallback {
-		result[key] = value
-	}
+	maps.Copy(result, fallback)
 
 	if lang == s.fallback {
 		return result
 	}
 
-	for key, value := range s.catalogs[lang] {
-		result[key] = value
-	}
+	maps.Copy(result, s.catalogs[lang])
 
 	return result
 }

@@ -52,12 +52,12 @@ type oidcFlow struct {
 }
 
 type oidcClaims struct {
-	Subject           string      `json:"sub"`
-	Name              string      `json:"name"`
-	PreferredUsername string      `json:"preferred_username"`
-	Email             string      `json:"email"`
-	Groups            interface{} `json:"groups"`
-	Nonce             string      `json:"nonce"`
+	Subject           string `json:"sub"`
+	Name              string `json:"name"`
+	PreferredUsername string `json:"preferred_username"`
+	Email             string `json:"email"`
+	Groups            any    `json:"groups"`
+	Nonce             string `json:"nonce"`
 }
 
 type oidcIntrospectionResponse struct {
@@ -218,7 +218,7 @@ func loadProviderFromDiscovery(ctx context.Context, discoveryURL, issuerOverride
 		logger.Error("oidc_discovery_request_failed", "discovery_url", discoveryURL, "duration_ms", durationMs, "error", err)
 		return nil, "", "", fmt.Errorf("oidc discovery request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -385,7 +385,7 @@ func (p *oidcProvider) introspectAccessToken(ctx context.Context, accessToken st
 		logger.Error("oidc_introspection_request_failed", "duration_ms", durationMS, "error", err)
 		return fmt.Errorf("oidc introspection request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -516,9 +516,9 @@ func roleRank(role Role) int {
 	}
 }
 
-func parseGroups(raw interface{}) []string {
+func parseGroups(raw any) []string {
 	switch value := raw.(type) {
-	case []interface{}:
+	case []any:
 		result := make([]string, 0, len(value))
 		for _, entry := range value {
 			if group, ok := entry.(string); ok {

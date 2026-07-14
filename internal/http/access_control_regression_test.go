@@ -113,7 +113,7 @@ func TestAccessControlRendersDeleteForOIDCPrincipalRegression(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/?tab=access", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -182,7 +182,7 @@ func TestAccessControlHidesPasswordPrincipalsWhenOIDCOnly(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/?tab=access", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -255,7 +255,7 @@ func TestCreatePrincipalRejectsPasswordWhenOIDCOnly(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/access/principals", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)

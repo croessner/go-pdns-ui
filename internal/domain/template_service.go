@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	TemplateZoneNameToken = "{{ZONE_NAME}}"
-	TemplateZoneFQDNToken = "{{ZONE_FQDN}}"
+	TemplateZoneNameToken = "{{ZONE_NAME}}" //nolint:gosec // DNS template placeholder, not a credential.
+	TemplateZoneFQDNToken = "{{ZONE_FQDN}}" //nolint:gosec // DNS template placeholder, not a credential.
 )
 
 type ZoneTemplateService interface {

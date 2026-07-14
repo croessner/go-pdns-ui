@@ -41,7 +41,7 @@ func NewDraftZoneService(repo ZoneRepository) *DraftZoneService {
 func (s *DraftZoneService) ListZones(ctx context.Context) ([]Zone, error) {
 	liveZones, err := s.repo.ListZones(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%w: list zones: %v", ErrBackend, err)
+		return nil, fmt.Errorf("%w: list zones: %w", ErrBackend, err)
 	}
 
 	s.mu.Lock()
@@ -265,12 +265,12 @@ func (s *DraftZoneService) Apply(ctx context.Context, zoneName string) error {
 	}
 
 	if err := s.repo.ApplyZone(ctx, draftZone); err != nil {
-		return fmt.Errorf("%w: apply zone: %v", ErrBackend, err)
+		return fmt.Errorf("%w: apply zone: %w", ErrBackend, err)
 	}
 
 	liveZone, err := s.repo.GetZone(ctx, zoneName)
 	if err != nil {
-		return fmt.Errorf("%w: refresh zone: %v", ErrBackend, err)
+		return fmt.Errorf("%w: refresh zone: %w", ErrBackend, err)
 	}
 
 	s.mu.Lock()

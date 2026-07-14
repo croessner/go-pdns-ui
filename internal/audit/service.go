@@ -41,8 +41,8 @@ type NoopService struct{}
 
 func NewNoopService() Service { return &NoopService{} }
 
-func (s *NoopService) Enabled() bool                                         { return false }
-func (s *NoopService) Log(_ context.Context, _ Entry) error                  { return nil }
+func (s *NoopService) Enabled() bool                        { return false }
+func (s *NoopService) Log(_ context.Context, _ Entry) error { return nil }
 func (s *NoopService) Search(_ context.Context, _ SearchParams) (SearchResult, error) {
 	return SearchResult{Page: 1, TotalPages: 1}, nil
 }

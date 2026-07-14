@@ -200,7 +200,7 @@ func TestAddPTRRecordRouteCreatesPTR(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/zones/example.org/records/ptr", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -260,7 +260,7 @@ func TestAddPTRRecordRouteRejectsConflictingPTR(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/zones/example.org/records/ptr", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -318,7 +318,7 @@ func TestAddPTRRecordRouteReplacesConflictingPTRWhenConfirmed(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/zones/example.org/records/ptr", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/"})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

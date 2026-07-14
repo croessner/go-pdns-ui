@@ -23,7 +23,7 @@ func formatZoneRFCText(zone domain.Zone) string {
 	builder.WriteString("$ORIGIN ")
 	builder.WriteString(origin)
 	builder.WriteString("\n")
-	builder.WriteString(fmt.Sprintf("$TTL %d\n", defaultTTL))
+	fmt.Fprintf(&builder, "$TTL %d\n", defaultTTL)
 	for _, record := range zone.Records {
 		name := strings.TrimSpace(record.Name)
 		if name == "" {
@@ -34,13 +34,14 @@ func formatZoneRFCText(zone domain.Zone) string {
 			ttl = defaultTTL
 		}
 
-		builder.WriteString(fmt.Sprintf(
+		fmt.Fprintf(
+			&builder,
 			"%s\t%d\tIN\t%s\t%s\n",
 			name,
 			ttl,
 			strings.ToUpper(strings.TrimSpace(record.Type)),
 			strings.TrimSpace(record.Content),
-		))
+		)
 	}
 
 	return builder.String()
@@ -214,9 +215,10 @@ func parenDelta(input string) int {
 		if inQuote {
 			continue
 		}
-		if r == '(' {
+		switch r {
+		case '(':
 			delta++
-		} else if r == ')' {
+		case ')':
 			delta--
 		}
 	}
