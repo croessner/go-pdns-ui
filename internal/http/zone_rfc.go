@@ -63,7 +63,12 @@ func parseZoneRFCText(zoneName, raw string) ([]domain.Record, error) {
 	defaultTTL := uint32(3600)
 	lastName := "@"
 	records := make([]domain.Record, 0, len(statements))
-	seen := make(map[string]struct{}, len(statements))
+	type importedRecordKey struct {
+		name    string
+		rtype   string
+		content string
+	}
+	seen := make(map[importedRecordKey]struct{}, len(statements))
 
 	for _, statement := range statements {
 		tokens := tokenizeZoneStatement(statement)
@@ -100,9 +105,13 @@ func parseZoneRFCText(zoneName, raw string) ([]domain.Record, error) {
 		}
 		lastName = parsedName
 
-		key := recordNameTypeKey(record)
+		key := importedRecordKey{
+			name:    strings.ToLower(strings.TrimSpace(record.Name)),
+			rtype:   strings.ToUpper(strings.TrimSpace(record.Type)),
+			content: strings.TrimSpace(record.Content),
+		}
 		if _, exists := seen[key]; exists {
-			return nil, fmt.Errorf("duplicate record name+type in import: %s %s", record.Name, record.Type)
+			return nil, fmt.Errorf("duplicate record in import: %s %s %s", record.Name, record.Type, record.Content)
 		}
 		seen[key] = struct{}{}
 		records = append(records, record)

@@ -76,7 +76,7 @@
     </div>
 
     {{if .IsAdmin}}
-    <details class="collapse collapse-arrow bg-base-200 border border-base-300">
+    <details class="collapse collapse-arrow bg-base-200 border border-base-300" {{if .ZoneImportError}}open{{end}}>
       <summary class="collapse-title text-sm font-semibold">{{index .L "zone_rfc_tools"}}</summary>
       <div class="collapse-content space-y-3">
         <form method="post" action="/zones/{{pathEscape .SelectedZone.Name}}/export" class="inline">
@@ -95,6 +95,14 @@
           <input type="hidden" name="q" value="{{.ZoneQuery}}">
           <input type="hidden" name="page" value="{{.ZonePage}}">
           <input type="hidden" name="tab" value="{{.ActiveTab}}">
+          {{if .ZoneImportError}}
+          <div class="alert alert-error text-sm" role="alert">
+            <div>
+              <div class="font-semibold">{{index .L "zone_rfc_import_failed"}}</div>
+              <div>{{.ZoneImportError}}</div>
+            </div>
+          </div>
+          {{end}}
           <label class="floating-label block">
             <span>{{index .L "zone_rfc_input"}}</span>
             <textarea
@@ -102,7 +110,7 @@
               class="textarea textarea-bordered w-full min-h-40 font-mono text-xs"
               placeholder="{{index .L "zone_rfc_placeholder"}}"
               required
-            ></textarea>
+            >{{.ZoneImportData}}</textarea>
           </label>
           <button type="submit" class="btn btn-sm btn-primary">{{index .L "import_zone_rfc"}}</button>
         </form>

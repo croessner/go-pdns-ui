@@ -105,6 +105,43 @@ func TestSaveRecordApplyAndResetDraft(t *testing.T) {
 	}
 }
 
+func TestReplaceRecordsPreservesRRSetMembers(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repo := NewInMemoryZoneRepository([]Zone{
+		{
+			Name: "example.org",
+			Kind: ZoneForward,
+			Records: []Record{
+				{Name: "@", Type: "SOA", TTL: 3600, Content: "ns1.example.org. hostmaster.example.org. 1 10800 3600 604800 3600"},
+				{Name: "old", Type: "A", TTL: 3600, Content: "192.0.2.1"},
+			},
+		},
+	})
+	svc := NewDraftZoneService(repo)
+
+	err := svc.ReplaceRecords(ctx, "example.org", []Record{
+		{Name: "@", Type: "SOA", TTL: 3600, Content: "ns1.example.org. hostmaster.example.org. 2 10800 3600 604800 3600"},
+		{Name: "@", Type: "NS", TTL: 3600, Content: "ns1.example.org."},
+		{Name: "@", Type: "NS", TTL: 3600, Content: "ns2.example.org."},
+	})
+	if err != nil {
+		t.Fatalf("replace records failed: %v", err)
+	}
+
+	draft, err := svc.GetDraft(ctx, "example.org")
+	if err != nil {
+		t.Fatalf("get draft failed: %v", err)
+	}
+	if len(draft.Records) != 3 {
+		t.Fatalf("expected complete RRset to be retained, got %+v", draft.Records)
+	}
+	if draft.Records[0].Name != "@" || draft.Records[0].Type != "NS" {
+		t.Fatalf("expected normalized sorted records, got %+v", draft.Records)
+	}
+}
+
 type zoneRepoStub struct {
 	listZones []Zone
 	getZones  map[string]Zone

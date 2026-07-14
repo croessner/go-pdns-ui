@@ -17,6 +17,7 @@ type ZoneService interface {
 	DeleteZone(ctx context.Context, zoneName string) error
 	SetDNSSEC(ctx context.Context, zoneName string, enabled bool) error
 	SaveRecord(ctx context.Context, zoneName, oldName, oldType string, record Record) error
+	ReplaceRecords(ctx context.Context, zoneName string, records []Record) error
 	DeleteRecord(ctx context.Context, zoneName, recordName, recordType string) error
 	Apply(ctx context.Context, zoneName string) error
 	ResetDraft(ctx context.Context, zoneName string) error
@@ -178,6 +179,52 @@ func (s *DraftZoneService) SaveRecord(ctx context.Context, zoneName, oldName, ol
 		return strings.Compare(a.Name, b.Name)
 	})
 
+	s.mu.Lock()
+	s.draft[zoneName] = zone
+	s.mu.Unlock()
+
+	return nil
+}
+
+// ReplaceRecords validates and replaces a zone draft's complete record set in
+// one operation. Unlike SaveRecord, it deliberately preserves multiple records
+// with the same name and type because they are members of one DNS RRset.
+func (s *DraftZoneService) ReplaceRecords(ctx context.Context, zoneName string, records []Record) error {
+	zone, err := s.GetDraft(ctx, zoneName)
+	if err != nil {
+		return err
+	}
+	if len(records) == 0 {
+		return fmt.Errorf("%w: record set must not be empty", ErrInvalidRec)
+	}
+
+	normalized := make([]Record, 0, len(records))
+	hasSOA := false
+	for _, record := range records {
+		normalizedRecord, normalizeErr := normalizeRecord(record)
+		if normalizeErr != nil {
+			return normalizeErr
+		}
+		if normalizedRecord.Type == "SOA" {
+			hasSOA = true
+		}
+		normalized = append(normalized, normalizedRecord)
+	}
+	if !hasSOA {
+		return fmt.Errorf("%w: record set must contain an SOA record", ErrInvalidRec)
+	}
+
+	slices.SortFunc(normalized, func(a, b Record) int {
+		if a.Name == b.Name {
+			if a.Type == b.Type {
+				return strings.Compare(a.Content, b.Content)
+			}
+			return strings.Compare(a.Type, b.Type)
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	zone.Records = normalized
 	s.mu.Lock()
 	s.draft[zoneName] = zone
 	s.mu.Unlock()

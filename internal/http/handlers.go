@@ -136,6 +136,8 @@ type viewData struct {
 	PTRAddActionsByRecord    map[string]ptrAddAction
 	AvailableRecordTypes     []string
 	ZoneWarnings             []string
+	ZoneImportError          string
+	ZoneImportData           string
 	AuditEnabled             bool
 	AuditEntries             []audit.Entry
 	AuditQuery               string
@@ -712,15 +714,19 @@ func (h *Handler) importZoneRFC(w http.ResponseWriter, r *http.Request, session 
 
 	records, err := parseZoneRFCText(zoneName, zoneData)
 	if err != nil {
-		h.badRequest(w, r, "invalid zone rfc content", err)
+		h.renderZoneImportError(w, r, zoneName, zoneData, err, session)
 		return
 	}
 	if !containsRecordType(records, "SOA") {
-		h.badRequest(w, r, "zone import requires an SOA record", nil)
+		h.renderZoneImportError(w, r, zoneName, zoneData, errors.New("zone import requires an SOA record"), session)
 		return
 	}
 
 	if err := h.replaceZoneDraftRecords(r.Context(), zoneName, records); err != nil {
+		if errors.Is(err, domain.ErrInvalidRec) {
+			h.renderZoneImportError(w, r, zoneName, zoneData, err, session)
+			return
+		}
 		h.respondDomainError(w, r, err)
 		return
 	}
@@ -1747,6 +1753,36 @@ func (h *Handler) renderZoneEditor(w http.ResponseWriter, r *http.Request, zoneN
 	h.render(w, "zone_editor", state, http.StatusOK)
 }
 
+func (h *Handler) renderZoneImportError(
+	w http.ResponseWriter,
+	r *http.Request,
+	zoneName string,
+	zoneData string,
+	importErr error,
+	session auth.Session,
+) {
+	lang := h.resolveLanguage(w, r)
+	state, err := h.buildDashboardState(
+		r.Context(),
+		lang,
+		strings.TrimSpace(r.FormValue("q")),
+		parsePage(strings.TrimSpace(r.FormValue("page"))),
+		zoneName,
+		strings.TrimSpace(r.FormValue("selected_template")),
+		strings.TrimSpace(r.FormValue("tab")),
+		session,
+	)
+	if err != nil {
+		h.internalError(w, r, "failed to render zone import error", err)
+		return
+	}
+
+	state.ZoneImportError = importErr.Error()
+	state.ZoneImportData = zoneData
+	h.logger.Warn("zone_rfc_import_failed", "zone_name", zoneName, "error", importErr)
+	h.render(w, "zone_editor", state, http.StatusOK)
+}
+
 func (h *Handler) renderTemplateEditor(w http.ResponseWriter, r *http.Request, templateName string, session auth.Session) {
 	lang := h.resolveLanguage(w, r)
 	state, err := h.buildDashboardState(
@@ -2319,44 +2355,7 @@ func containsRecordType(records []domain.Record, recordType string) bool {
 }
 
 func (h *Handler) replaceZoneDraftRecords(ctx context.Context, zoneName string, records []domain.Record) error {
-	draft, err := h.zones.GetDraft(ctx, zoneName)
-	if err != nil {
-		return err
-	}
-
-	existingByNameType := make(map[string]domain.Record, len(draft.Records))
-	for _, record := range draft.Records {
-		existingByNameType[recordNameTypeKey(record)] = record
-	}
-
-	importedByNameType := make(map[string]domain.Record, len(records))
-	for _, record := range records {
-		importedByNameType[recordNameTypeKey(record)] = record
-	}
-
-	for _, record := range draft.Records {
-		if _, keep := importedByNameType[recordNameTypeKey(record)]; keep {
-			continue
-		}
-		if err := h.zones.DeleteRecord(ctx, zoneName, record.Name, record.Type); err != nil {
-			return err
-		}
-	}
-
-	for _, record := range records {
-		oldName := ""
-		oldType := ""
-		if _, exists := existingByNameType[recordNameTypeKey(record)]; exists {
-			oldName = record.Name
-			oldType = record.Type
-		}
-
-		if err := h.zones.SaveRecord(ctx, zoneName, oldName, oldType, record); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return h.zones.ReplaceRecords(ctx, zoneName, records)
 }
 
 func (h *Handler) computePTRAddActions(ctx context.Context, forwardZone domain.Zone, accessibleZones []domain.Zone) map[string]ptrAddAction {

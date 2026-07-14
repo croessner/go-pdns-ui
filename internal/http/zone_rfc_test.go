@@ -49,7 +49,7 @@ api 300 IN AAAA 2001:db8::1
 	}
 }
 
-func TestParseZoneRFCTextRejectsDuplicateNameType(t *testing.T) {
+func TestParseZoneRFCTextAcceptsMultipleRRSetMembers(t *testing.T) {
 	t.Parallel()
 
 	input := `
@@ -59,9 +59,35 @@ www IN A 192.0.2.10
 www IN A 192.0.2.20
 `
 
+	records, err := parseZoneRFCText("example.org", input)
+	if err != nil {
+		t.Fatalf("expected same-name same-type RRset members to parse, got %v", err)
+	}
+
+	var addresses []string
+	for _, record := range records {
+		if record.Name == "www" && record.Type == "A" {
+			addresses = append(addresses, record.Content)
+		}
+	}
+	if len(addresses) != 2 {
+		t.Fatalf("expected both A RRset members, got %v", addresses)
+	}
+}
+
+func TestParseZoneRFCTextRejectsExactDuplicateRecord(t *testing.T) {
+	t.Parallel()
+
+	input := `
+$ORIGIN example.org.
+@ IN SOA ns1.example.org. hostmaster.example.org. 2026031401 10800 3600 604800 3600
+www IN A 192.0.2.10
+www IN A 192.0.2.10
+`
+
 	_, err := parseZoneRFCText("example.org", input)
 	if err == nil {
-		t.Fatalf("expected duplicate name+type parse error")
+		t.Fatal("expected exact duplicate record parse error")
 	}
 }
 
@@ -90,7 +116,9 @@ $ORIGIN example.org.
 $TTL 1800
 @ IN SOA ns1.example.org. hostmaster.example.org. 2026031401 10800 3600 604800 3600
 @ IN NS ns1.example.org.
+@ IN NS ns2.example.org.
 www IN A 192.0.2.10
+www IN A 192.0.2.20
 `)
 
 	form := url.Values{
@@ -122,6 +150,74 @@ www IN A 192.0.2.10
 	if imported, exists := findRecord(draft.Records, "www", "A"); !exists || imported.Content != "192.0.2.10" {
 		t.Fatalf("expected imported A record to exist, got exists=%v record=%+v", exists, imported)
 	}
+	if got := countRecords(draft.Records, "@", "NS"); got != 2 {
+		t.Fatalf("expected both imported NS RRset members, got %d", got)
+	}
+	if got := countRecords(draft.Records, "www", "A"); got != 2 {
+		t.Fatalf("expected both imported A RRset members, got %d", got)
+	}
+}
+
+func TestImportZoneRFCRouteRendersParserErrorAndPreservesInput(t *testing.T) {
+	t.Parallel()
+
+	mux, authSvc, zoneSvc := newPTRTestMux(t, []domain.Zone{
+		{
+			Name: "example.org",
+			Kind: domain.ZoneForward,
+			Records: []domain.Record{
+				{Name: "@", Type: "SOA", TTL: 3600, Content: "ns1.example.org. hostmaster.example.org. 1 10800 3600 604800 3600"},
+				{Name: "@", Type: "NS", TTL: 3600, Content: "ns1.example.org."},
+			},
+		},
+	})
+
+	session, err := authSvc.LoginWithPassword("admin", "admin")
+	if err != nil {
+		t.Fatalf("login failed: %v", err)
+	}
+
+	zoneText := "$ORIGIN example.org.\nwww IN A not-an-ip"
+	form := url.Values{
+		"csrf_token": {session.CSRFToken},
+		"zone_data":  {zoneText},
+		"page":       {"1"},
+		"tab":        {"zones"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/zones/example.org/import", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID, Path: "/"})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected HTMX-swappable status %d, got %d", http.StatusOK, rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Zone import failed") {
+		t.Fatalf("expected visible import error, got: %s", body)
+	}
+	if !strings.Contains(body, zoneText) {
+		t.Fatalf("expected submitted zone input to be preserved, got: %s", body)
+	}
+
+	draft, err := zoneSvc.GetDraft(context.Background(), "example.org")
+	if err != nil {
+		t.Fatalf("get draft failed: %v", err)
+	}
+	if len(draft.Records) != 2 {
+		t.Fatalf("expected invalid import not to mutate draft, got %+v", draft.Records)
+	}
+}
+
+func countRecords(records []domain.Record, name, recordType string) int {
+	count := 0
+	for _, record := range records {
+		if record.Name == name && record.Type == recordType {
+			count++
+		}
+	}
+	return count
 }
 
 func TestExportZoneRFCRouteReturnsZoneText(t *testing.T) {

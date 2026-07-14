@@ -201,5 +201,6 @@
   "export_zone_rfc": "Export zone (RFC)",
   "import_zone_rfc": "Import zone (RFC)",
   "zone_rfc_input": "Zone as RFC text",
-  "zone_rfc_placeholder": "$ORIGIN example.org.\n$TTL 3600\n@ IN SOA ns1.example.org. hostmaster.example.org. 2026031401 10800 3600 604800 3600\n@ IN NS ns1.example.org.\nwww IN A 192.0.2.10"
+  "zone_rfc_placeholder": "$ORIGIN example.org.\n$TTL 3600\n@ IN SOA ns1.example.org. hostmaster.example.org. 2026031401 10800 3600 604800 3600\n@ IN NS ns1.example.org.\nwww IN A 192.0.2.10",
+  "zone_rfc_import_failed": "Zone import failed"
 }
