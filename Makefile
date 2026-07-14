@@ -29,10 +29,10 @@ run:
 
 fix:
 	GOFLAGS=$(GO_MOD_FLAGS) $(GO) fix ./...
-	gofmt -w $$(rg --files -g '*.go' -g '!vendor/**')
+	find . -path ./vendor -prune -o -type f -name '*.go' -exec gofmt -w {} +
 
 fmt:
-	gofmt -w $$(rg --files -g '*.go' -g '!vendor/**')
+	find . -path ./vendor -prune -o -type f -name '*.go' -exec gofmt -w {} +
 
 vet:
 	GOFLAGS=$(GO_MOD_FLAGS) $(GO) vet ./...
