@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -124,6 +125,24 @@ func TestAccessControlRendersDeleteForOIDCPrincipalRegression(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, `hx-post="/access/principals/oidc-principal-1/delete"`) {
 		t.Fatalf("expected OIDC principal delete form to be rendered")
+	}
+}
+
+func TestRespondDomainErrorDoesNotExposeBackendDetails(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := &Handler{logger: logger}
+	req := httptest.NewRequest(http.MethodGet, "/templates", nil)
+	rec := httptest.NewRecorder()
+
+	handler.respondDomainError(rec, req, errors.New("postgres connection failed for user secret-user"))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, rec.Code)
+	}
+	if body := rec.Body.String(); body != "internal server error\n" {
+		t.Fatalf("expected generic backend error, got %q", body)
 	}
 }
 

@@ -43,6 +43,26 @@ func NewRuntime(ctx context.Context, config Config, logger *slog.Logger, deps De
 	}
 
 	resolvedDeps := deps
+	cleanupOnError := true
+	ownedTemplateService := false
+	ownedAccessService := false
+	ownedAuditService := false
+	defer func() {
+		if !cleanupOnError {
+			return
+		}
+		if ownedAuditService && resolvedDeps.AuditService != nil {
+			_ = resolvedDeps.AuditService.Close()
+		}
+		if ownedAccessService && resolvedDeps.AccessService != nil {
+			_ = resolvedDeps.AccessService.Close()
+		}
+		if ownedTemplateService {
+			if closer, ok := resolvedDeps.TemplateService.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+		}
+	}()
 	if resolvedDeps.TemplateFS == nil {
 		resolvedDeps.TemplateFS = assets.Files
 	}
@@ -56,7 +76,12 @@ func NewRuntime(ctx context.Context, config Config, logger *slog.Logger, deps De
 	}
 
 	if resolvedDeps.TemplateService == nil {
-		resolvedDeps.TemplateService = newTemplateService(logger)
+		templateService, err := newTemplateService(ctx, resolvedConfig, logger)
+		if err != nil {
+			return nil, fmt.Errorf("initialize zone templates: %w", err)
+		}
+		resolvedDeps.TemplateService = templateService
+		ownedTemplateService = true
 	}
 
 	if resolvedDeps.AccessService == nil {
@@ -76,6 +101,7 @@ func NewRuntime(ctx context.Context, config Config, logger *slog.Logger, deps De
 			return nil, fmt.Errorf("initialize access control: %w", err)
 		}
 		resolvedDeps.AccessService = accessService
+		ownedAccessService = true
 	}
 
 	if resolvedDeps.AuthService == nil {
@@ -106,6 +132,7 @@ func NewRuntime(ctx context.Context, config Config, logger *slog.Logger, deps De
 			return nil, fmt.Errorf("initialize audit log: %w", err)
 		}
 		resolvedDeps.AuditService = auditSvc
+		ownedAuditService = true
 	}
 
 	runtime := &Runtime{
@@ -121,6 +148,7 @@ func NewRuntime(ctx context.Context, config Config, logger *slog.Logger, deps De
 		"authz_mode", runtime.config.AuthzMode,
 	)
 
+	cleanupOnError = false
 	return runtime, nil
 }
 
@@ -135,6 +163,11 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 
 func (r *Runtime) Run(ctx context.Context) error {
 	defer func() {
+		if closer, ok := r.deps.TemplateService.(interface{ Close() error }); ok {
+			if err := closer.Close(); err != nil {
+				r.logger.Warn("template_service_close_failed", "error", err)
+			}
+		}
 		if r.deps.AuditService != nil {
 			if err := r.deps.AuditService.Close(); err != nil {
 				r.logger.Warn("audit_service_close_failed", "error", err)
@@ -216,10 +249,19 @@ func newZoneService(logger *slog.Logger) (domain.ZoneService, error) {
 	return domain.NewDraftZoneService(inMemoryRepo), nil
 }
 
-func newTemplateService(logger *slog.Logger) domain.ZoneTemplateService {
+func newTemplateService(ctx context.Context, config Config, logger *slog.Logger) (domain.ZoneTemplateService, error) {
 	templates := seedTemplates()
-	logger.Info("template service initialized", "seed_template_count", len(templates))
-	return domain.NewInMemoryZoneTemplateService(templates)
+	if strings.TrimSpace(config.DatabaseURL) == "" {
+		logger.Info("template_service_initialized", "backend", "memory", "seed_template_count", len(templates))
+		return domain.NewInMemoryZoneTemplateService(templates), nil
+	}
+
+	return domain.NewPostgresZoneTemplateService(ctx, domain.TemplateDBConfig{
+		DSN:                 config.DatabaseURL,
+		MaxOpenConns:        config.DBMaxOpenConns,
+		MaxIdleConns:        config.DBMaxIdleConns,
+		ConnMaxLifetimeSecs: config.DBConnMaxLifetimeSecs,
+	}, templates, logger)
 }
 
 func seedZones() []domain.Zone {

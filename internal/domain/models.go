@@ -33,7 +33,8 @@ type Zone struct {
 }
 
 type ZoneTemplate struct {
-	Name    string
-	Kind    ZoneKind
-	Records []Record
+	Name          string
+	Kind          ZoneKind
+	DNSSECEnabled bool
+	Records       []Record
 }

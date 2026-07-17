@@ -58,13 +58,14 @@ type Handler struct {
 }
 
 type recordFormData struct {
-	OldName string
-	OldType string
-	Name    string
-	Type    string
-	TTL     uint32
-	Content string
-	Editing bool
+	OldName    string
+	OldType    string
+	OldContent string
+	Name       string
+	Type       string
+	TTL        uint32
+	Content    string
+	Editing    bool
 }
 
 type ptrAddAction struct {
@@ -756,6 +757,7 @@ func (h *Handler) createZone(w http.ResponseWriter, r *http.Request, session aut
 		}
 
 		zone.Kind = templateDef.Kind
+		zone.DNSSECEnabled = templateDef.DNSSECEnabled
 		zone.Records = domain.InstantiateTemplateRecords(zoneName, templateDef.Records)
 	}
 
@@ -1185,13 +1187,24 @@ func (h *Handler) createTemplate(w http.ResponseWriter, r *http.Request, session
 
 	templateName := strings.TrimSpace(r.FormValue("name"))
 	kind := domain.ZoneKind(strings.TrimSpace(r.FormValue("kind")))
+	dnssecEnabled := r.FormValue("dnssec_enabled") == "true"
 
-	if err := h.zoneTemplates.CreateTemplate(r.Context(), domain.ZoneTemplate{Name: templateName, Kind: kind}); err != nil {
+	if err := h.zoneTemplates.CreateTemplate(r.Context(), domain.ZoneTemplate{
+		Name:          templateName,
+		Kind:          kind,
+		DNSSECEnabled: dnssecEnabled,
+	}); err != nil {
 		h.respondDomainError(w, r, err)
 		return
 	}
 
-	h.logAction("template_created", session, "template_name", templateName, "zone_kind", kind)
+	h.logAction(
+		"template_created",
+		session,
+		"template_name", templateName,
+		"zone_kind", kind,
+		"dnssec_enabled", dnssecEnabled,
+	)
 
 	selectedZone := strings.TrimSpace(r.FormValue("selected_zone"))
 	state, err := h.buildDashboardState(
@@ -1292,6 +1305,7 @@ func (h *Handler) saveTemplateRecord(w http.ResponseWriter, r *http.Request, ses
 		templateName,
 		r.FormValue("old_name"),
 		r.FormValue("old_type"),
+		r.FormValue("old_content"),
 		domain.Record{
 			Name:    r.FormValue("name"),
 			Type:    r.FormValue("type"),
@@ -1330,7 +1344,13 @@ func (h *Handler) deleteTemplateRecord(w http.ResponseWriter, r *http.Request, s
 		return
 	}
 
-	if err := h.zoneTemplates.DeleteTemplateRecord(r.Context(), templateName, r.FormValue("name"), r.FormValue("type")); err != nil {
+	if err := h.zoneTemplates.DeleteTemplateRecord(
+		r.Context(),
+		templateName,
+		r.FormValue("name"),
+		r.FormValue("type"),
+		r.FormValue("content"),
+	); err != nil {
 		h.respondDomainError(w, r, err)
 		return
 	}
@@ -2250,23 +2270,25 @@ func (h *Handler) applyTemplateRecordFormFromQuery(r *http.Request, data *viewDa
 
 	oldName := strings.TrimSpace(r.URL.Query().Get("edit_name"))
 	oldType := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("edit_type")))
-	if oldName == "" || oldType == "" {
+	oldContent := strings.TrimSpace(r.URL.Query().Get("edit_content"))
+	if oldName == "" || oldType == "" || oldContent == "" {
 		return
 	}
 
-	record, ok := findRecord(data.SelectedTemplate.Records, oldName, oldType)
+	record, ok := findRecordMember(data.SelectedTemplate.Records, oldName, oldType, oldContent)
 	if !ok {
 		return
 	}
 
 	data.TemplateRecordForm = recordFormData{
-		OldName: oldName,
-		OldType: oldType,
-		Name:    record.Name,
-		Type:    record.Type,
-		TTL:     record.TTL,
-		Content: record.Content,
-		Editing: true,
+		OldName:    oldName,
+		OldType:    oldType,
+		OldContent: oldContent,
+		Name:       record.Name,
+		Type:       record.Type,
+		TTL:        record.TTL,
+		Content:    record.Content,
+		Editing:    true,
 	}
 	data.TemplateDialogEditing = isDialogRecordType(record.Type)
 }
@@ -2274,6 +2296,16 @@ func (h *Handler) applyTemplateRecordFormFromQuery(r *http.Request, data *viewDa
 func findRecord(records []domain.Record, name, recordType string) (domain.Record, bool) {
 	for _, record := range records {
 		if record.Name == name && record.Type == recordType {
+			return record, true
+		}
+	}
+
+	return domain.Record{}, false
+}
+
+func findRecordMember(records []domain.Record, name, recordType, content string) (domain.Record, bool) {
+	for _, record := range records {
+		if record.Name == name && record.Type == recordType && record.Content == content {
 			return record, true
 		}
 	}
@@ -3124,7 +3156,14 @@ func (h *Handler) respondDomainError(w http.ResponseWriter, r *http.Request, err
 		h.logger.Warn("domain_request_failed", attrs...)
 	}
 
-	http.Error(w, err.Error(), status)
+	message := err.Error()
+	if status >= http.StatusInternalServerError {
+		message = "internal server error"
+		if status == http.StatusBadGateway {
+			message = "backend unavailable"
+		}
+	}
+	http.Error(w, message, status)
 }
 
 func (h *Handler) respondAccessError(w http.ResponseWriter, r *http.Request, err error) {

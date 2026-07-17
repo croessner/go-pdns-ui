@@ -17,8 +17,8 @@ type ZoneTemplateService interface {
 	GetTemplate(ctx context.Context, name string) (ZoneTemplate, error)
 	CreateTemplate(ctx context.Context, template ZoneTemplate) error
 	DeleteTemplate(ctx context.Context, name string) error
-	SaveTemplateRecord(ctx context.Context, templateName, oldName, oldType string, record Record) error
-	DeleteTemplateRecord(ctx context.Context, templateName, recordName, recordType string) error
+	SaveTemplateRecord(ctx context.Context, templateName, oldName, oldType, oldContent string, record Record) error
+	DeleteTemplateRecord(ctx context.Context, templateName, recordName, recordType, recordContent string) error
 }
 
 type InMemoryZoneTemplateService struct {
@@ -111,7 +111,11 @@ func (s *InMemoryZoneTemplateService) DeleteTemplate(_ context.Context, name str
 	return nil
 }
 
-func (s *InMemoryZoneTemplateService) SaveTemplateRecord(_ context.Context, templateName, oldName, oldType string, record Record) error {
+func (s *InMemoryZoneTemplateService) SaveTemplateRecord(
+	_ context.Context,
+	templateName, oldName, oldType, oldContent string,
+	record Record,
+) error {
 	templateName = strings.TrimSpace(templateName)
 	if templateName == "" {
 		return ErrTemplateNotFound
@@ -132,25 +136,39 @@ func (s *InMemoryZoneTemplateService) SaveTemplateRecord(_ context.Context, temp
 
 	oldName = strings.TrimSpace(oldName)
 	oldType = strings.ToUpper(strings.TrimSpace(oldType))
+	oldContent = strings.TrimSpace(oldContent)
+	if (oldName == "") != (oldType == "") || (oldName == "") != (oldContent == "") {
+		return ErrInvalidRec
+	}
 	if oldName != "" && oldType == "SOA" && (normalized.Name != oldName || normalized.Type != "SOA") {
 		return ErrInvalidRec
 	}
 
-	if oldName != "" && oldType != "" && (oldName != normalized.Name || oldType != normalized.Type) {
-		template.Records = slices.DeleteFunc(template.Records, func(entry Record) bool {
-			return entry.Name == oldName && entry.Type == oldType
-		})
-	}
-
-	found := false
-	for i := range template.Records {
-		if template.Records[i].Name == normalized.Name && template.Records[i].Type == normalized.Type {
-			template.Records[i] = normalized
-			found = true
+	oldIndex := -1
+	if oldName != "" {
+		for i, entry := range template.Records {
+			if entry.Name == oldName && entry.Type == oldType && entry.Content == oldContent {
+				oldIndex = i
+				break
+			}
+		}
+		if oldIndex < 0 {
+			return ErrInvalidRec
 		}
 	}
 
-	if !found {
+	for i, entry := range template.Records {
+		if i == oldIndex || entry.Name != normalized.Name || entry.Type != normalized.Type {
+			continue
+		}
+		if entry.TTL != normalized.TTL || entry.Content == normalized.Content {
+			return ErrInvalidRec
+		}
+	}
+
+	if oldIndex >= 0 {
+		template.Records[oldIndex] = normalized
+	} else {
 		template.Records = append(template.Records, normalized)
 	}
 
@@ -159,7 +177,10 @@ func (s *InMemoryZoneTemplateService) SaveTemplateRecord(_ context.Context, temp
 	return nil
 }
 
-func (s *InMemoryZoneTemplateService) DeleteTemplateRecord(_ context.Context, templateName, recordName, recordType string) error {
+func (s *InMemoryZoneTemplateService) DeleteTemplateRecord(
+	_ context.Context,
+	templateName, recordName, recordType, recordContent string,
+) error {
 	templateName = strings.TrimSpace(templateName)
 	if templateName == "" {
 		return ErrTemplateNotFound
@@ -175,16 +196,25 @@ func (s *InMemoryZoneTemplateService) DeleteTemplateRecord(_ context.Context, te
 
 	recordName = strings.TrimSpace(recordName)
 	recordType = strings.ToUpper(strings.TrimSpace(recordType))
-	if recordName == "" || recordType == "" {
+	recordContent = strings.TrimSpace(recordContent)
+	if recordName == "" || recordType == "" || recordContent == "" {
 		return ErrInvalidRec
 	}
 	if recordType == "SOA" {
 		return ErrInvalidRec
 	}
 
-	template.Records = slices.DeleteFunc(template.Records, func(entry Record) bool {
-		return entry.Name == recordName && entry.Type == recordType
-	})
+	recordIndex := -1
+	for i, entry := range template.Records {
+		if entry.Name == recordName && entry.Type == recordType && entry.Content == recordContent {
+			recordIndex = i
+			break
+		}
+	}
+	if recordIndex < 0 {
+		return ErrInvalidRec
+	}
+	template.Records = slices.Delete(template.Records, recordIndex, recordIndex+1)
 
 	s.templates[templateName] = template
 	return nil
@@ -256,21 +286,55 @@ func normalizeTemplate(template ZoneTemplate) (ZoneTemplate, error) {
 		}
 		normalizedRecords = append(normalizedRecords, normalized)
 	}
+	if err := validateTemplateRRsets(normalizedRecords); err != nil {
+		return ZoneTemplate{}, err
+	}
 
 	sortRecords(normalizedRecords)
 
 	return ZoneTemplate{
-		Name:    template.Name,
-		Kind:    template.Kind,
-		Records: normalizedRecords,
+		Name:          template.Name,
+		Kind:          template.Kind,
+		DNSSECEnabled: template.DNSSECEnabled,
+		Records:       normalizedRecords,
 	}, nil
+}
+
+func validateTemplateRRsets(records []Record) error {
+	type rrsetState struct {
+		ttl      uint32
+		contents map[string]struct{}
+	}
+
+	rrsets := make(map[string]rrsetState)
+	for _, record := range records {
+		key := record.Name + "\x00" + record.Type
+		state, exists := rrsets[key]
+		if !exists {
+			rrsets[key] = rrsetState{
+				ttl:      record.TTL,
+				contents: map[string]struct{}{record.Content: {}},
+			}
+			continue
+		}
+		if state.ttl != record.TTL {
+			return ErrInvalidTemplate
+		}
+		if _, duplicate := state.contents[record.Content]; duplicate {
+			return ErrInvalidTemplate
+		}
+		state.contents[record.Content] = struct{}{}
+		rrsets[key] = state
+	}
+	return nil
 }
 
 func cloneTemplate(template ZoneTemplate) ZoneTemplate {
 	cloned := ZoneTemplate{
-		Name:    template.Name,
-		Kind:    template.Kind,
-		Records: make([]Record, len(template.Records)),
+		Name:          template.Name,
+		Kind:          template.Kind,
+		DNSSECEnabled: template.DNSSECEnabled,
+		Records:       make([]Record, len(template.Records)),
 	}
 	copy(cloned.Records, template.Records)
 	return cloned

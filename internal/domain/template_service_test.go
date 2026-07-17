@@ -29,7 +29,7 @@ func TestTemplateServiceCreateAndEditRecord(t *testing.T) {
 		t.Fatalf("create template failed: %v", err)
 	}
 
-	err = svc.SaveTemplateRecord(ctx, "Forward Basic", "", "", Record{
+	err = svc.SaveTemplateRecord(ctx, "Forward Basic", "", "", "", Record{
 		Name:    "www",
 		Type:    "a",
 		TTL:     300,
@@ -39,12 +39,19 @@ func TestTemplateServiceCreateAndEditRecord(t *testing.T) {
 		t.Fatalf("save template record failed: %v", err)
 	}
 
-	err = svc.SaveTemplateRecord(ctx, "Forward Basic", "@", "SOA", Record{
-		Name:    "@",
-		Type:    "SOA",
-		TTL:     7200,
-		Content: "ns1.{{ZONE_NAME}} hostmaster.{{ZONE_NAME}} 2 10800 3600 604800 3600",
-	})
+	err = svc.SaveTemplateRecord(
+		ctx,
+		"Forward Basic",
+		"@",
+		"SOA",
+		"ns1.{{ZONE_NAME}} hostmaster.{{ZONE_NAME}} 1 10800 3600 604800 3600",
+		Record{
+			Name:    "@",
+			Type:    "SOA",
+			TTL:     7200,
+			Content: "ns1.{{ZONE_NAME}} hostmaster.{{ZONE_NAME}} 2 10800 3600 604800 3600",
+		},
+	)
 	if err != nil {
 		t.Fatalf("update SOA template record failed: %v", err)
 	}
@@ -123,7 +130,7 @@ func TestTemplateServiceValidatesSRVRecord(t *testing.T) {
 		t.Fatalf("create template failed: %v", err)
 	}
 
-	err := svc.SaveTemplateRecord(ctx, "SRV Template", "", "", Record{
+	err := svc.SaveTemplateRecord(ctx, "SRV Template", "", "", "", Record{
 		Name:    "_ldap._tcp",
 		Type:    "SRV",
 		TTL:     3600,
@@ -199,8 +206,92 @@ func TestDeleteTemplateRecordRejectsSOA(t *testing.T) {
 		t.Fatalf("create template failed: %v", err)
 	}
 
-	err := svc.DeleteTemplateRecord(ctx, "SOA Protected", "@", "SOA")
+	err := svc.DeleteTemplateRecord(
+		ctx,
+		"SOA Protected",
+		"@",
+		"SOA",
+		"ns1.{{ZONE_NAME}} hostmaster.{{ZONE_NAME}} 1 10800 3600 604800 3600",
+	)
 	if !errors.Is(err, ErrInvalidRec) {
 		t.Fatalf("expected ErrInvalidRec when deleting SOA, got %v", err)
+	}
+}
+
+func TestTemplateServicePreservesMultipleRRsetMembers(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	svc := NewInMemoryZoneTemplateService([]ZoneTemplate{
+		{
+			Name: "RNS",
+			Kind: ZoneForward,
+			Records: []Record{
+				{Name: "@", Type: "NS", TTL: 86400, Content: "ns1.roessner-net.de."},
+				{Name: "@", Type: "NS", TTL: 86400, Content: "ns2.roessner-net.de."},
+			},
+		},
+	})
+
+	if err := svc.SaveTemplateRecord(
+		ctx,
+		"RNS",
+		"@",
+		"NS",
+		"ns1.roessner-net.de.",
+		Record{Name: "@", Type: "NS", TTL: 86400, Content: "ns3.roessner-net.de."},
+	); err != nil {
+		t.Fatalf("edit NS member failed: %v", err)
+	}
+	if err := svc.SaveTemplateRecord(
+		ctx,
+		"RNS",
+		"",
+		"",
+		"",
+		Record{Name: "@", Type: "NS", TTL: 86400, Content: "ns4.roessner-net.de."},
+	); err != nil {
+		t.Fatalf("add NS member failed: %v", err)
+	}
+	if err := svc.DeleteTemplateRecord(ctx, "RNS", "@", "NS", "ns3.roessner-net.de."); err != nil {
+		t.Fatalf("delete NS member failed: %v", err)
+	}
+
+	template, err := svc.GetTemplate(ctx, "RNS")
+	if err != nil {
+		t.Fatalf("get template failed: %v", err)
+	}
+	if len(template.Records) != 2 {
+		t.Fatalf("expected two preserved NS members, got %d", len(template.Records))
+	}
+	if template.Records[0].Content != "ns2.roessner-net.de." || template.Records[1].Content != "ns4.roessner-net.de." {
+		t.Fatalf("unexpected NS members: %+v", template.Records)
+	}
+}
+
+func TestTemplateServiceRejectsConflictingRRsetTTL(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	svc := NewInMemoryZoneTemplateService([]ZoneTemplate{
+		{
+			Name: "RNS",
+			Kind: ZoneForward,
+			Records: []Record{
+				{Name: "@", Type: "NS", TTL: 86400, Content: "ns1.roessner-net.de."},
+			},
+		},
+	})
+
+	err := svc.SaveTemplateRecord(
+		ctx,
+		"RNS",
+		"",
+		"",
+		"",
+		Record{Name: "@", Type: "NS", TTL: 3600, Content: "ns2.roessner-net.de."},
+	)
+	if !errors.Is(err, ErrInvalidRec) {
+		t.Fatalf("expected conflicting RRset TTL to fail, got %v", err)
 	}
 }

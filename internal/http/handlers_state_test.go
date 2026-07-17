@@ -3,7 +3,12 @@ package ui
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/croessner/go-pdns-ui/internal/access"
@@ -384,6 +389,81 @@ func TestBuildDashboardStateTemplatesHiddenForUserRole(t *testing.T) {
 	}
 	if adminData.SelectedTemplate == nil || adminData.SelectedTemplate.Name != "Forward Basic" {
 		t.Fatalf("expected selected template for admin, got %+v", adminData.SelectedTemplate)
+	}
+}
+
+func TestCreateZoneAppliesTemplateDNSSECAndAllRRsetMembers(t *testing.T) {
+	t.Parallel()
+
+	i18nSvc, err := i18n.NewService(assets.Files, "locales", "en")
+	if err != nil {
+		t.Fatalf("new i18n service failed: %v", err)
+	}
+	zoneSvc := domain.NewDraftZoneService(domain.NewInMemoryZoneRepository(nil))
+	authSvc, err := auth.NewInMemoryService(context.Background(), "admin", "admin", auth.OIDCConfig{})
+	if err != nil {
+		t.Fatalf("new auth service failed: %v", err)
+	}
+	templateSvc := domain.NewInMemoryZoneTemplateService([]domain.ZoneTemplate{
+		{
+			Name:          "RNS",
+			Kind:          domain.ZoneForward,
+			DNSSECEnabled: true,
+			Records: []domain.Record{
+				{
+					Name:    "@",
+					Type:    "SOA",
+					TTL:     86400,
+					Content: "ns1.roessner-net.de. hostmaster.roessner-net.de. 1 10800 3600 604800 3600",
+				},
+				{Name: "@", Type: "NS", TTL: 86400, Content: "ns1.roessner-net.de."},
+				{Name: "@", Type: "NS", TTL: 86400, Content: "ns2.roessner-net.de."},
+			},
+		},
+	})
+	handler, err := NewHandler(
+		assets.Files,
+		zoneSvc,
+		templateSvc,
+		authSvc,
+		i18nSvc,
+		access.NewNoopService(),
+		audit.NewNoopService(),
+		HandlerOptions{},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	if err != nil {
+		t.Fatalf("new handler failed: %v", err)
+	}
+
+	form := url.Values{
+		"name":     {"new-domain.example"},
+		"kind":     {string(domain.ZoneForward)},
+		"template": {"RNS"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/zones", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	handler.createZone(rec, req, auth.Session{User: auth.User{Role: auth.RoleAdmin}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	zone, err := zoneSvc.GetDraft(context.Background(), "new-domain.example")
+	if err != nil {
+		t.Fatalf("get created zone failed: %v", err)
+	}
+	if !zone.DNSSECEnabled {
+		t.Fatalf("expected template to enable DNSSEC")
+	}
+	nsMembers := 0
+	for _, record := range zone.Records {
+		if record.Name == "@" && record.Type == "NS" {
+			nsMembers++
+		}
+	}
+	if nsMembers != 2 {
+		t.Fatalf("expected both NS members, got %d", nsMembers)
 	}
 }
 

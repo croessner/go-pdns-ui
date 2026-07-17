@@ -196,6 +196,10 @@
               <option value="reverse-v6">{{index .L "reverse_v6_zone"}}</option>
             </select>
           </label>
+          <label class="label cursor-pointer justify-start gap-3 sm:col-span-2">
+            <input type="checkbox" name="dnssec_enabled" value="true" class="checkbox checkbox-primary">
+            <span class="label-text">{{index .L "dnssec"}}</span>
+          </label>
           <button type="submit" class="btn btn-secondary sm:col-span-2">{{index .L "create_template"}}</button>
         </form>
 
@@ -205,6 +209,7 @@
               <tr>
                 <th>{{index .L "template_name"}}</th>
                 <th>{{index .L "zone_kind"}}</th>
+                <th>{{index .L "dnssec"}}</th>
                 <th class="text-right">{{index .L "actions"}}</th>
               </tr>
             </thead>
@@ -232,6 +237,13 @@
                   <span class="badge badge-accent badge-outline whitespace-nowrap px-3 h-auto py-2">{{index $.L "reverse_v6_zone_short"}}</span>
                   {{end}}
                 </td>
+                <td>
+                  {{if .DNSSECEnabled}}
+                  <span class="badge badge-success badge-outline">{{index $.L "dnssec"}}</span>
+                  {{else}}
+                  <span class="opacity-50">—</span>
+                  {{end}}
+                </td>
                 <td class="text-right">
                   <form
                     hx-post="/templates/{{pathEscape .Name}}/delete"
@@ -256,7 +268,7 @@
               </tr>
               {{else}}
               <tr>
-                <td colspan="3" class="text-center opacity-70 py-8">{{index .L "no_templates"}}</td>
+                <td colspan="4" class="text-center opacity-70 py-8">{{index .L "no_templates"}}</td>
               </tr>
               {{end}}
             </tbody>

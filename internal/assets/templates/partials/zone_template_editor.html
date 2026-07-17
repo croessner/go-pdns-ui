@@ -21,6 +21,9 @@
           {{if eq .SelectedTemplate.Kind "reverse-v6"}}
           <span class="badge badge-accent badge-outline whitespace-nowrap px-3 h-auto py-2">{{index .L "reverse_v6_zone_short"}}</span>
           {{end}}
+          {{if .SelectedTemplate.DNSSECEnabled}}
+          <span class="badge badge-success badge-outline whitespace-nowrap px-3 h-auto py-2">{{index .L "dnssec"}}</span>
+          {{end}}
         </div>
       </div>
 
@@ -39,7 +42,7 @@
             </thead>
             <tbody>
               {{range .SelectedTemplate.Records}}
-              {{$isInlineEdit := and $.TemplateRecordForm.Editing (not $.TemplateDialogEditing) (eq $.TemplateRecordForm.OldName .Name) (eq $.TemplateRecordForm.OldType .Type)}}
+              {{$isInlineEdit := and $.TemplateRecordForm.Editing (not $.TemplateDialogEditing) (eq $.TemplateRecordForm.OldName .Name) (eq $.TemplateRecordForm.OldType .Type) (eq $.TemplateRecordForm.OldContent .Content)}}
               {{if $isInlineEdit}}
               <tr>
                 <td>
@@ -100,6 +103,7 @@
                     <input type="hidden" name="tab" value="templates">
                     <input type="hidden" name="old_name" value="{{$.TemplateRecordForm.OldName}}">
                     <input type="hidden" name="old_type" value="{{$.TemplateRecordForm.OldType}}">
+                    <input type="hidden" name="old_content" value="{{$.TemplateRecordForm.OldContent}}">
                   </form>
                   <button type="submit" form="template-inline-edit-form" class="btn btn-secondary btn-xs">{{index $.L "save_record"}}</button>
                   <button
@@ -135,6 +139,7 @@
                     <input type="hidden" name="tab" value="templates">
                     <input type="hidden" name="edit_name" value="{{.Name}}">
                     <input type="hidden" name="edit_type" value="{{.Type}}">
+                    <input type="hidden" name="edit_content" value="{{.Content}}">
                     <button type="submit" class="btn btn-ghost btn-xs">{{index $.L "edit_record"}}</button>
                   </form>
                   {{if ne .Type "SOA"}}
@@ -148,6 +153,7 @@
                     <input type="hidden" name="csrf_token" value="{{ $.CSRFToken }}">
                     <input type="hidden" name="name" value="{{.Name}}">
                     <input type="hidden" name="type" value="{{.Type}}">
+                    <input type="hidden" name="content" value="{{.Content}}">
                     <input type="hidden" name="selected_zone" value="{{if $.SelectedZone}}{{$.SelectedZone.Name}}{{end}}">
                     <input type="hidden" name="q" value="{{$.ZoneQuery}}">
                     <input type="hidden" name="page" value="{{$.ZonePage}}">
@@ -197,6 +203,7 @@
         <input type="hidden" name="tab" value="templates">
         <input type="hidden" name="old_name" value="{{if $templateDialogEdit}}{{.TemplateRecordForm.OldName}}{{end}}">
         <input type="hidden" name="old_type" value="{{if $templateDialogEdit}}{{.TemplateRecordForm.OldType}}{{end}}">
+        <input type="hidden" name="old_content" value="{{if $templateDialogEdit}}{{.TemplateRecordForm.OldContent}}{{end}}">
         <label class="floating-label md:col-span-2">
           <span>{{index .L "record_name"}}</span>
           <input type="text" name="name" value="{{if $templateDialogEdit}}{{.TemplateRecordForm.Name}}{{end}}" class="input input-bordered w-full" placeholder="@ / www / 10" required>

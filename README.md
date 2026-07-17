@@ -13,6 +13,7 @@ Modern HTMX UI for administering PowerDNS zones with draft/apply workflow.
 - DNSSEC toggle on draft state
 - Draft vs apply behavior per zone
 - Structured helper dialogs for TXT, SRV, SOA, CAA and TLSA records
+- Persistent zone templates with optional DNSSEC defaults when PostgreSQL is configured
 - Reverse zone validation for IPv4 (`.in-addr.arpa`) and IPv6 (`.ip6.arpa`)
 - PowerDNS API abstraction with real backend integration
 - Dark mode toggle
@@ -94,6 +95,9 @@ Behavior in `company` mode:
 - Admins can pre-create OIDC principals (without local passwords) in Access Control.
 - If `GO_PDNS_UI_AUTHZ_OIDC_AUTO_CREATE=false`, unknown OIDC users are rejected at login.
 - Audit log retention cleanup runs against the same PostgreSQL DSN when `GO_PDNS_UI_DATABASE_URL` is configured.
+- Zone templates and their RRset members are persisted in the same PostgreSQL database. Existing template changes survive application restarts.
+
+When `GO_PDNS_UI_DATABASE_URL` is unset, templates use the in-memory seed set and runtime edits are lost when the process stops. A template can enable DNSSEC for zones created from it; DS publication at the registrar remains a separate operator step.
 
 Important role note:
 
