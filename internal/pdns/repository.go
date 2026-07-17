@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/croessner/go-pdns-ui/internal/domain"
 )
@@ -101,7 +103,7 @@ func (r *Repository) CreateZone(ctx context.Context, zone domain.Zone) error {
 	payload := pdnsCreateZoneRequest{
 		Name:        ensureFQDN(zone.Name),
 		Kind:        "Native",
-		DNSSEC:      zone.DNSSECEnabled,
+		DNSSEC:      false,
 		Nameservers: zoneNameServers(zone),
 	}
 
@@ -113,9 +115,9 @@ func (r *Repository) CreateZone(ctx context.Context, zone domain.Zone) error {
 		return mapRepositoryError(err)
 	}
 
-	r.logger.Info("pdns_zone_created", "zone_name", zone.Name, "dnssec_enabled", zone.DNSSECEnabled)
+	r.logger.Info("pdns_zone_created", "zone_name", zone.Name, "dnssec_enabled", false, "dnssec_requested", zone.DNSSECEnabled)
 
-	if len(zone.Records) == 0 {
+	if len(zone.Records) == 0 && !zone.DNSSECEnabled {
 		return nil
 	}
 
@@ -156,10 +158,14 @@ func (r *Repository) ApplyZone(ctx context.Context, desired domain.Zone) error {
 	}
 
 	if current.DNSSECEnabled != desired.DNSSECEnabled {
+		if desired.DNSSECEnabled {
+			return r.enableDNSSECWithSplitKeys(ctx, desired.Name)
+		}
+
 		payload := pdnsUpdateZoneRequest{
 			Name:   ensureFQDN(desired.Name),
 			Kind:   "Native",
-			DNSSEC: desired.DNSSECEnabled,
+			DNSSEC: false,
 		}
 		if err := r.client.put(ctx, r.zonePath(desired.Name), payload, nil); err != nil {
 			return mapRepositoryError(err)
@@ -168,6 +174,109 @@ func (r *Repository) ApplyZone(ctx context.Context, desired domain.Zone) error {
 	}
 
 	return nil
+}
+
+func (r *Repository) enableDNSSECWithSplitKeys(ctx context.Context, zoneName string) error {
+	ksk, err := r.createCryptokey(ctx, zoneName, "ksk")
+	if err != nil {
+		return err
+	}
+
+	zsk, err := r.createCryptokey(ctx, zoneName, "zsk")
+	if err != nil {
+		r.deleteCryptokeysBestEffort(ctx, zoneName, ksk.ID)
+		return err
+	}
+
+	if err := r.setCryptokeyState(ctx, zoneName, zsk.ID, true); err != nil {
+		r.deleteCryptokeysBestEffort(ctx, zoneName, zsk.ID, ksk.ID)
+		return err
+	}
+
+	if err := r.setCryptokeyState(ctx, zoneName, ksk.ID, true); err != nil {
+		r.deleteCryptokeysBestEffort(ctx, zoneName, zsk.ID, ksk.ID)
+		return err
+	}
+	if err := r.verifySplitCryptokeys(ctx, zoneName, ksk.ID, zsk.ID); err != nil {
+		r.deleteCryptokeysBestEffort(ctx, zoneName, zsk.ID, ksk.ID)
+		return err
+	}
+
+	r.logger.Info("pdns_zone_dnssec_split_keys_created", "zone_name", zoneName, "key_types", "ksk,zsk")
+	return nil
+}
+
+func (r *Repository) createCryptokey(ctx context.Context, zoneName, keyType string) (pdnsCryptokey, error) {
+	payload := pdnsCreateCryptokeyRequest{
+		KeyType:   keyType,
+		Active:    false,
+		Published: true,
+	}
+
+	var key pdnsCryptokey
+	if err := r.client.post(ctx, r.cryptokeysPath(zoneName), payload, &key); err != nil {
+		return pdnsCryptokey{}, fmt.Errorf("create DNSSEC %s: %w", strings.ToUpper(keyType), mapRepositoryError(err))
+	}
+	if key.ID <= 0 {
+		return pdnsCryptokey{}, fmt.Errorf("%w: PowerDNS returned an invalid DNSSEC %s id", domain.ErrBackend, strings.ToUpper(keyType))
+	}
+
+	return key, nil
+}
+
+func (r *Repository) setCryptokeyState(ctx context.Context, zoneName string, keyID int, active bool) error {
+	payload := pdnsUpdateCryptokeyRequest{Active: active, Published: true}
+	path := r.cryptokeyPath(zoneName, keyID)
+	if err := r.client.put(ctx, path, payload, nil); err != nil {
+		return fmt.Errorf("set DNSSEC key state: %w", mapRepositoryError(err))
+	}
+	return nil
+}
+
+func (r *Repository) verifySplitCryptokeys(ctx context.Context, zoneName string, kskID, zskID int) error {
+	var keys []pdnsCryptokey
+	if err := r.client.get(ctx, r.cryptokeysPath(zoneName), &keys); err != nil {
+		return fmt.Errorf("verify DNSSEC key roles: %w", mapRepositoryError(err))
+	}
+
+	expected := map[int]string{kskID: "ksk", zskID: "zsk"}
+	for _, key := range keys {
+		keyType, ok := expected[key.ID]
+		if !ok {
+			continue
+		}
+		if !strings.EqualFold(key.KeyType, keyType) || !key.Active || !key.Published {
+			return fmt.Errorf("%w: PowerDNS did not activate the generated DNSSEC %s as a separate key", domain.ErrBackend, strings.ToUpper(keyType))
+		}
+		delete(expected, key.ID)
+	}
+	if len(expected) != 0 {
+		return fmt.Errorf("%w: PowerDNS did not return all generated DNSSEC keys", domain.ErrBackend)
+	}
+
+	return nil
+}
+
+func (r *Repository) deleteCryptokeysBestEffort(ctx context.Context, zoneName string, keyIDs ...int) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+
+	for _, keyID := range keyIDs {
+		if keyID <= 0 {
+			continue
+		}
+		if err := r.setCryptokeyState(cleanupCtx, zoneName, keyID, false); err != nil {
+			r.logger.Warn("pdns_zone_dnssec_key_deactivation_failed", "zone_name", zoneName, "error", err)
+		}
+	}
+	for _, keyID := range keyIDs {
+		if keyID <= 0 {
+			continue
+		}
+		if err := r.client.delete(cleanupCtx, r.cryptokeyPath(zoneName, keyID)); err != nil {
+			r.logger.Warn("pdns_zone_dnssec_key_cleanup_failed", "zone_name", zoneName, "error", err)
+		}
+	}
 }
 
 type pdnsZone struct {
@@ -207,6 +316,24 @@ type pdnsUpdateZoneRequest struct {
 	DNSSEC bool   `json:"dnssec"`
 }
 
+type pdnsCryptokey struct {
+	ID        int    `json:"id"`
+	KeyType   string `json:"keytype"`
+	Active    bool   `json:"active"`
+	Published bool   `json:"published"`
+}
+
+type pdnsCreateCryptokeyRequest struct {
+	KeyType   string `json:"keytype"`
+	Active    bool   `json:"active"`
+	Published bool   `json:"published"`
+}
+
+type pdnsUpdateCryptokeyRequest struct {
+	Active    bool `json:"active"`
+	Published bool `json:"published"`
+}
+
 type pdnsServer struct {
 	ID string `json:"id"`
 }
@@ -217,6 +344,14 @@ func (r *Repository) zonesPath() string {
 
 func (r *Repository) zonePath(zoneName string) string {
 	return "/servers/" + url.PathEscape(r.getServerID()) + "/zones/" + url.PathEscape(ensureFQDN(zoneName))
+}
+
+func (r *Repository) cryptokeysPath(zoneName string) string {
+	return r.zonePath(zoneName) + "/cryptokeys"
+}
+
+func (r *Repository) cryptokeyPath(zoneName string, keyID int) string {
+	return r.cryptokeysPath(zoneName) + "/" + strconv.Itoa(keyID)
 }
 
 func validateCreateZone(zone domain.Zone) error {
